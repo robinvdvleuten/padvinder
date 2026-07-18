@@ -2,6 +2,17 @@
 
 A tiny, CSP-safe JSONPath engine for JavaScript. **~2.75KB min+gzip, zero dependencies. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
 
+[![NPM version](https://img.shields.io/npm/v/padvinder.svg)](https://www.npmjs.com/package/padvinder)
+[![Build Status](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml/badge.svg)](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml)
+[![NPM downloads](https://img.shields.io/npm/dm/padvinder.svg)](https://www.npmjs.com/package/padvinder)
+[![MIT license](https://img.shields.io/github/license/robinvdvleuten/padvinder.svg)](https://github.com/robinvdvleuten/padvinder/blob/main/LICENSE)
+
+<a href="https://webstronauts.com?utm_source=github&utm_medium=readme&utm_campaign=padvinder">
+	<picture>
+		<img src="https://webstronauts.com/images/sponsored-by.svg" alt="Sponsored by The Webstronauts" width="200" height="65">
+	</picture>
+</a>
+
 *Padvinder* is Dutch for "pathfinder", and also what we call a scout. It implements RFC 9535 JSONPath, filters included, with a real parser instead of the generated code that filter evaluation usually relies on. There is no `eval` and no `new Function`, so a query cannot smuggle code into your application, and the engine runs under a strict Content Security Policy.
 
 ```js
