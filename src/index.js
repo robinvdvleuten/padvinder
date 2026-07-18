@@ -97,7 +97,11 @@ let selector = (s, fns) => {
 		});
 	}
 	const q = /^(['"])([\s\S]*)\1$/.exec(s);
-	if (q) return ns => ns.flatMap(n => child(n, q[2]));
+	if (q) {
+		// Unescape via JSON, single quotes normalized first (as xprsn does).
+		const k = JSON.parse(q[1] === '"' ? s : '"' + q[2].replace(/\\'/g, "'").replace(/"/g, '\\"') + '"');
+		return ns => ns.flatMap(n => child(n, k));
+	}
 	if (/^-?\d+$/.test(s)) return ns => ns.flatMap(n => child(n, s));
 	err('Bad selector [' + s + ']');
 };

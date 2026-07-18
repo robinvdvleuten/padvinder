@@ -47,6 +47,15 @@ test('slices', t => {
 	t.end();
 });
 
+test('quoted keys unescape', t => {
+	t.deepEqual(find("$['it\\'s']", { "it's": 1 }), [1], 'escaped single quote');
+	t.deepEqual(find('$["say \\"hi\\""]', { 'say "hi"': 2 }), [2], 'escaped double quotes');
+	t.deepEqual(find("$['back\\\\slash']", { 'back\\slash': 3 }), [3], 'escaped backslash');
+	t.deepEqual(find("$['a,b']", { 'a,b': 4 }), [4], 'comma inside quotes is not a union');
+	t.deepEqual(find("$['spaced key'].x", { 'spaced key': { x: 5 } }), [5]);
+	t.end();
+});
+
 test('unions', t => {
 	t.deepEqual(find('$.store.book[0,2].title', data), ['Sayings of the Century', 'Moby Dick']);
 	t.deepEqual(find("$.store.bicycle['color','price']", data), ['red', 19.95]);
