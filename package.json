@@ -30,6 +30,7 @@
 	],
 	"scripts": {
 		"build": "microbundle --no-sourcemap",
+		"cts:update": "curl -sL -o test/cts.json https://raw.githubusercontent.com/jsonpath-standard/jsonpath-compliance-test-suite/main/cts.json && curl -sL -o test/cts.LICENSE https://raw.githubusercontent.com/jsonpath-standard/jsonpath-compliance-test-suite/main/LICENSE",
 		"prepublishOnly": "npm run build",
 		"test": "node --disallow-code-generation-from-strings node_modules/tape/bin/tape test/*.test.js"
 	},
