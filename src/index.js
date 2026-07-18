@@ -58,6 +58,10 @@ let child = (n, k) => {
 	return Object.hasOwn(n, k) ? [n[k]] : [];
 };
 
+// Quoted string → value. Unescape via JSON, single quotes normalized first
+// (the same trick xprsn uses for its string literals).
+let unq = s => JSON.parse(s[0] === '"' ? s : '"' + s.slice(1, -1).replace(/\\'/g, "'").replace(/"/g, '\\"') + '"');
+
 // Rewrite `@` → `_` and `$` → `_root` outside string literals, so a filter
 // becomes a plain xprsn expression with the node and root bound as variables.
 let vars = s => {
@@ -104,10 +108,16 @@ let split = s => {
 let selector = (s, fns) => {
 	if (s === '*') return ns => ns.flatMap(kids);
 	if (s[0] === '?') {
-		// RFC-style `?expr` and classic `?(expr)` both parse: parentheses are
-		// ordinary grouping in xprsn, so no unwrapping is needed.
-		const test = compile(vars(s.slice(1)), fns);
-		return (ns, root) => ns.flatMap(kids).filter(c => test({ _: c, _root: root }));
+		// RFC grammar first; anything that does not parse as RFC compiles as
+		// an xprsn expression (the dialect superset with the user registry).
+		let test;
+		try {
+			test = rfcFilter(s.slice(1), fns);
+		} catch {
+			const e = compile(vars(s.slice(1)), fns);
+			test = (n, root) => e({ _: n, _root: root });
+		}
+		return (ns, root) => ns.flatMap(kids).filter(c => test(c, root));
 	}
 	const sl = /^(-?\d*)\s*:\s*(-?\d*)(?:\s*:\s*(-?\d+)?)?$/.exec(s);
 	if (sl) {
@@ -130,12 +140,13 @@ let selector = (s, fns) => {
 		});
 	}
 	const q = /^(['"])([\s\S]*)\1$/.exec(s);
+	// RFC 9535 typing: a quoted name selects only from objects, an index only
+	// from arrays.
 	if (q) {
-		// Unescape via JSON, single quotes normalized first (as xprsn does).
-		const k = JSON.parse(q[1] === '"' ? s : '"' + q[2].replace(/\\'/g, "'").replace(/"/g, '\\"') + '"');
-		return ns => ns.flatMap(n => child(n, k));
+		const k = unq(s);
+		return ns => ns.flatMap(n => Array.isArray(n) ? [] : child(n, k));
 	}
-	if (/^-?\d+$/.test(s)) return ns => ns.flatMap(n => child(n, s));
+	if (/^-?\d+$/.test(s)) return ns => ns.flatMap(n => Array.isArray(n) ? child(n, s) : []);
 	err('Bad selector [' + s + ']');
 };
 
@@ -159,16 +170,19 @@ let segments = (path, j, fns, soft) => {
 		}
 		if (path[j] === '[') {
 			const end = close(path, j);
-			const sels = split(path.slice(j + 1, end)).map(s => selector(s, fns));
+			const raw = split(path.slice(j + 1, end));
+			const sels = raw.map(s => selector(s, fns));
+			// Singular per RFC 9535: one selector, and it is a name or index.
+			const sing = !desc && raw.length === 1 && (/^-?\d+$/.test(raw[0]) || /^["']/.test(raw[0]));
 			// Node-major order (RFC 9535): all selectors run per node before
 			// moving to the next node.
-			segs.push({ desc, apply: (ns, root) => ns.flatMap(n => sels.flatMap(sel => sel([n], root))) });
+			segs.push({ desc, sing, apply: (ns, root) => ns.flatMap(n => sels.flatMap(sel => sel([n], root))) });
 			j = end + 1;
 		} else {
 			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
 			j += m[1].length;
 			const k = m[1];
-			segs.push({ desc, apply: k === '*' ? ns => ns.flatMap(kids) : ns => ns.flatMap(n => child(n, k)) });
+			segs.push({ desc, sing: !desc && k !== '*', apply: k === '*' ? ns => ns.flatMap(kids) : ns => ns.flatMap(n => child(n, k)) });
 		}
 	}
 	return { segs, j };
@@ -176,6 +190,180 @@ let segments = (path, j, fns, soft) => {
 
 // Run compiled segments over a start nodelist.
 let run = (segs, ns, root) => segs.reduce((acc, s) => s.apply(s.desc ? acc.flatMap(n => all(n)) : acc, root), ns);
+
+// ---- RFC 9535 filter grammar ----
+// Missing values are a distinct "Nothing", not undefined: undefined is a
+// value JS data can actually hold.
+const NOTHING = Symbol();
+
+// Deep structural equality per RFC 9535. Own keys only, through the guard,
+// so `__proto__` keys in data stay inert here too.
+let deepEq = (a, b) => {
+	if (a === b) return true;
+	if (Array.isArray(a) && Array.isArray(b))
+		return a.length === b.length && a.every((x, j) => deepEq(x, b[j]));
+	if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+		const ka = Object.keys(a).filter(k => !BLOCK(k)), kb = Object.keys(b).filter(k => !BLOCK(k));
+		return ka.length === kb.length && ka.every(k => Object.hasOwn(b, k) && deepEq(a[k], b[k]));
+	}
+	return false;
+};
+
+// RFC comparison semantics: == is deep, Nothing only equals Nothing, and the
+// orderings apply to two numbers or two strings, nothing else.
+let cmp = (op, a, b) =>
+	op === '==' ? (a === NOTHING || b === NOTHING ? a === b : deepEq(a, b)) :
+	op === '!=' ? !cmp('==', a, b) :
+	op === '<=' ? cmp('==', a, b) || cmp('<', a, b) :
+	op === '>=' ? cmp('==', a, b) || cmp('<', b, a) :
+	op === '>' ? cmp('<', b, a) :
+	(typeof a === typeof b && (typeof a === 'number' || typeof a === 'string') && a < b); // <
+
+// The five RFC function extensions with their argument and return types.
+// Any other name is a parse failure, which routes the whole filter to the
+// xprsn fallback where the user registry lives.
+const RFCFN = {
+	length: { args: ['value'], ret: 'value', make: ([a]) => (n, r) => {
+		const v = a(n, r);
+		return typeof v === 'string' ? [...v].length
+			: Array.isArray(v) ? v.length
+			: v && typeof v === 'object' ? Object.keys(v).length
+			: NOTHING;
+	} },
+	count: { args: ['nodes'], ret: 'value', make: ([a]) => (n, r) => a(n, r).length },
+	value: { args: ['nodes'], ret: 'value', make: ([a]) => (n, r) => {
+		const ns = a(n, r);
+		return ns.length === 1 ? ns[0] : NOTHING;
+	} },
+	match: { args: ['value', 'value'], ret: 'logical', make: ([a, b]) => (n, r) => reTest(a(n, r), b(n, r), true) },
+	search: { args: ['value', 'value'], ret: 'logical', make: ([a, b]) => (n, r) => reTest(a(n, r), b(n, r), false) },
+};
+
+// Parse one filter body as the RFC grammar, producing (node, root) => boolean.
+// Throws SyntaxError when the source is not RFC grammar; the caller then
+// compiles it as an xprsn expression instead.
+let rfcFilter = (src, fns) => {
+	let k = 0;
+	const fail = () => err('not RFC 9535');
+	const ws = () => { while (/\s/.test(src[k])) k++; };
+	const eat = c => src.startsWith(c, k) && (k += c.length, !0);
+
+	// `@` or `$` plus segments; runs to a nodelist.
+	const queryExpr = () => {
+		const abs = src[k++] === '$';
+		const { segs, j } = segments(src, k, fns, !0);
+		k = j;
+		return {
+			sing: segs.every(s => s.sing),
+			run: (n, r) => run(segs, [abs ? r : n], r),
+		};
+	};
+
+	// Literal number, string, or keyword; undefined when none matches.
+	const literal = () => {
+		const m = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(src.slice(k));
+		if (m && !/[\w.]/.test(src[k + m[0].length] ?? '')) {
+			k += m[0].length;
+			const v = +m[0];
+			return () => v;
+		}
+		if (src[k] === '"' || src[k] === "'") {
+			let j = k + 1;
+			for (; j < src.length && src[j] !== src[k]; j++) if (src[j] === '\\') j++;
+			j < src.length || fail();
+			const v = unq(src.slice(k, j + 1));
+			k = j + 1;
+			return () => v;
+		}
+		for (const [w, v] of [['true', !0], ['false', !1], ['null', null]])
+			if (src.startsWith(w, k) && !/\w/.test(src[k + w.length] ?? '')) {
+				k += w.length;
+				return () => v;
+			}
+	};
+
+	// name(args) with RFC typing; `arg` parses one argument of the given type.
+	const arg = type => {
+		ws();
+		if (src[k] === '@' || src[k] === '$') {
+			const q = queryExpr();
+			if (type === 'nodes') return (n, r) => q.run(n, r);
+			q.sing || fail();
+			return (n, r) => { const ns = q.run(n, r); return ns.length ? ns[0] : NOTHING; };
+		}
+		type === 'nodes' && fail();
+		const lit = literal();
+		if (lit) return lit;
+		const f = funcExpr();
+		f.type === 'value' || fail();
+		return f.fn;
+	};
+	const funcExpr = () => {
+		const m = /^[a-z][a-z0-9_]*/.exec(src.slice(k)) || fail();
+		const spec = RFCFN[m[0]] || fail();
+		k += m[0].length;
+		ws(); eat('(') || fail();
+		const args = spec.args.map((t, x) => (x && (ws(), eat(',') || fail()), arg(t)));
+		ws(); eat(')') || fail();
+		return { type: spec.ret, fn: spec.make(args) };
+	};
+
+	// A comparable/test primary: query, literal, or function call.
+	const primary = () => {
+		ws();
+		if (src[k] === '@' || src[k] === '$') return { q: queryExpr() };
+		const lit = literal();
+		if (lit) return { v: lit };
+		const f = funcExpr();
+		return f.type === 'logical' ? { l: f.fn } : { v: f.fn };
+	};
+	// ValueType position: literals, value functions, and singular queries only.
+	const asValue = p => {
+		if (p.v) return p.v;
+		p.q && p.q.sing || fail();
+		const q = p.q;
+		return (n, r) => { const ns = q.run(n, r); return ns.length ? ns[0] : NOTHING; };
+	};
+
+	const basic = () => {
+		ws();
+		let neg = !1;
+		while (eat('!')) { neg = !neg; ws(); }
+		if (eat('(')) {
+			const e = or();
+			ws(); eat(')') || fail();
+			return neg ? (n, r) => !e(n, r) : e;
+		}
+		const p = primary();
+		ws();
+		const op = ['==', '!=', '<=', '>=', '<', '>'].find(o => src.startsWith(o, k));
+		if (op) {
+			neg && fail();
+			k += op.length;
+			const a = asValue(p), b = asValue(primary());
+			return (n, r) => cmp(op, a(n, r), b(n, r));
+		}
+		// Test position: a query is an existence test, a logical function is
+		// itself; a bare literal is not RFC grammar.
+		const t = p.q ? ((q => (n, r) => q.run(n, r).length > 0)(p.q)) : (p.l || fail());
+		return neg ? (n, r) => !t(n, r) : t;
+	};
+	const and = () => {
+		let l = basic();
+		for (ws(); eat('&&'); ws()) { const a = l, b = basic(); l = (n, r) => a(n, r) && b(n, r); }
+		return l;
+	};
+	const or = () => {
+		let l = and();
+		for (ws(); eat('||'); ws()) { const a = l, b = and(); l = (n, r) => a(n, r) || b(n, r); }
+		return l;
+	};
+
+	const e = or();
+	ws();
+	k === src.length || fail();
+	return e;
+};
 
 /**
  * Compile a JSONPath query once, run it many times.
