@@ -1,6 +1,6 @@
 {
 	"name": "padvinder",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Tiny, CSP-safe JSONPath engine powered by xprsn expressions. No eval, no new Function.",
 	"repository": "robinvdvleuten/padvinder",
 	"license": "MIT",
