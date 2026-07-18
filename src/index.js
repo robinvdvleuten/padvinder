@@ -139,6 +139,44 @@ let selector = (s, fns) => {
 	err('Bad selector [' + s + ']');
 };
 
+// Parse consecutive segments starting at index `j`; returns the compiled
+// segments plus where parsing stopped. Top level (`soft` false) errors on any
+// unexpected character. Soft mode instead stops at the first character that
+// cannot start a segment, so embedded queries inside filters can end
+// mid-string (before an operator, `)`, `]`, or `,`).
+let segments = (path, j, fns, soft) => {
+	const segs = [];
+	while (j < path.length) {
+		const back = j;
+		// Whitespace is allowed before a segment, never inside one.
+		while (/\s/.test(path[j])) j++;
+		let desc = false;
+		if (path.startsWith('..', j)) { desc = true; j += 2; }
+		else if (path[j] === '.') j++;
+		else if (path[j] !== '[') {
+			if (soft) return { segs, j: back };
+			err('Unexpected "' + path[j] + '" in path');
+		}
+		if (path[j] === '[') {
+			const end = close(path, j);
+			const sels = split(path.slice(j + 1, end)).map(s => selector(s, fns));
+			// Node-major order (RFC 9535): all selectors run per node before
+			// moving to the next node.
+			segs.push({ desc, apply: (ns, root) => ns.flatMap(n => sels.flatMap(sel => sel([n], root))) });
+			j = end + 1;
+		} else {
+			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
+			j += m[1].length;
+			const k = m[1];
+			segs.push({ desc, apply: k === '*' ? ns => ns.flatMap(kids) : ns => ns.flatMap(n => child(n, k)) });
+		}
+	}
+	return { segs, j };
+};
+
+// Run compiled segments over a start nodelist.
+let run = (segs, ns, root) => segs.reduce((acc, s) => s.apply(s.desc ? acc.flatMap(n => all(n)) : acc, root), ns);
+
 /**
  * Compile a JSONPath query once, run it many times.
  *
@@ -161,30 +199,8 @@ export function query(path, funcs) {
 	};
 	path = String(path).trim();
 	path[0] === '$' || err('Path must start with $');
-	const segs = [];
-	let j = 1;
-	while (j < path.length) {
-		// Whitespace is allowed before a segment, never inside one.
-		while (/\s/.test(path[j])) j++;
-		let desc = false;
-		if (path.startsWith('..', j)) { desc = true; j += 2; }
-		else if (path[j] === '.') j++;
-		else if (path[j] !== '[') err('Unexpected "' + path[j] + '" in path');
-		if (path[j] === '[') {
-			const end = close(path, j);
-			const sels = split(path.slice(j + 1, end)).map(s => selector(s, funcs));
-			// Node-major order (RFC 9535): all selectors run per node before
-			// moving to the next node.
-			segs.push({ desc, apply: (ns, root) => ns.flatMap(n => sels.flatMap(sel => sel([n], root))) });
-			j = end + 1;
-		} else {
-			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
-			j += m[1].length;
-			const k = m[1];
-			segs.push({ desc, apply: k === '*' ? ns => ns.flatMap(kids) : ns => ns.flatMap(n => child(n, k)) });
-		}
-	}
-	return data => segs.reduce((ns, s) => s.apply(s.desc ? ns.flatMap(n => all(n)) : ns, data), [data]);
+	const { segs } = segments(path, 1, funcs, false);
+	return data => run(segs, [data], data);
 }
 
 /**
