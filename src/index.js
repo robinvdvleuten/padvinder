@@ -9,6 +9,27 @@ const BLOCK = k => k === '__proto__' || k === 'constructor' || k === 'prototype'
 
 let err = m => { throw SyntaxError(m) };
 
+// I-Regexp (RFC 9485) `.` matches anything but \n and \r; JavaScript's dot
+// also excludes U+2028 and U+2029. Rewrite bare dots outside char classes.
+let ire = p => {
+	let out = '', cls = false;
+	for (let j = 0; j < p.length; j++) {
+		const c = p[j];
+		if (c === '\\') { out += c + (p[++j] ?? ''); continue; }
+		if (c === '[') cls = true;
+		else if (c === ']') cls = false;
+		out += c === '.' && !cls ? '[^\\n\\r]' : c;
+	}
+	return out;
+};
+
+// Regex test for the `match`/`search` filter functions; a non-string subject
+// or an invalid pattern is simply no match.
+let reTest = (s, p, anchor) => {
+	if (typeof s !== 'string' || typeof p !== 'string') return false;
+	try { return new RegExp(anchor ? '^(?:' + ire(p) + ')$' : ire(p), 'u').test(s); } catch { return false; }
+};
+
 // Own child values of a node (guarded).
 let kids = n => n && typeof n === 'object'
 	? (Array.isArray(n) ? [...n] : Object.keys(n).filter(k => !BLOCK(k)).map(k => n[k]))
@@ -83,17 +104,29 @@ let split = s => {
 let selector = (s, fns) => {
 	if (s === '*') return ns => ns.flatMap(kids);
 	if (s[0] === '?') {
-		const m = /^\?\(([\s\S]+)\)$/.exec(s) || err('Bad filter [' + s + ']');
-		const test = compile(vars(m[1]), fns);
+		// RFC-style `?expr` and classic `?(expr)` both parse: parentheses are
+		// ordinary grouping in xprsn, so no unwrapping is needed.
+		const test = compile(vars(s.slice(1)), fns);
 		return (ns, root) => ns.flatMap(kids).filter(c => test({ _: c, _root: root }));
 	}
-	const sl = /^(-?\d*):(-?\d*)(?::(\d+))?$/.exec(s);
+	const sl = /^(-?\d*)\s*:\s*(-?\d*)(?:\s*:\s*(-?\d+)?)?$/.exec(s);
 	if (sl) {
-		const [, a, b, st] = sl;
+		// RFC 9535 slice: negative indexes count from the end, negative steps
+		// walk backwards, step 0 selects nothing.
+		const st = sl[3] ? +sl[3] : 1;
 		return ns => ns.flatMap(n => {
-			if (!Array.isArray(n)) return [];
-			const out = n.slice(a ? +a : undefined, b ? +b : undefined);
-			return st > 1 ? out.filter((x, j) => j % st === 0) : out;
+			if (!Array.isArray(n) || !st) return [];
+			const len = n.length, norm = x => (x < 0 ? x + len : x), out = [];
+			if (st > 0) {
+				const lo = Math.min(Math.max(sl[1] ? norm(+sl[1]) : 0, 0), len);
+				const hi = Math.min(Math.max(sl[2] ? norm(+sl[2]) : len, 0), len);
+				for (let j = lo; j < hi; j += st) out.push(n[j]);
+			} else {
+				const hi = Math.min(Math.max(sl[1] ? norm(+sl[1]) : len - 1, -1), len - 1);
+				const lo = Math.min(Math.max(sl[2] ? norm(+sl[2]) : -1, -1), len - 1);
+				for (let j = hi; j > lo; j += st) out.push(n[j]);
+			}
+			return out;
 		});
 	}
 	const q = /^(['"])([\s\S]*)\1$/.exec(s);
@@ -115,11 +148,24 @@ let selector = (s, fns) => {
  * @throws {SyntaxError} On malformed paths or filter expressions.
  */
 export function query(path, funcs) {
+	// RFC 9535 function extensions, available in every filter. Overridable
+	// and extendable via the caller's registry.
+	funcs = {
+		length: x => typeof x === 'string' ? [...x].length
+			: Array.isArray(x) ? x.length
+			: x && typeof x === 'object' ? Object.keys(x).length
+			: undefined,
+		match: (s, p) => reTest(s, p, true),
+		search: (s, p) => reTest(s, p, false),
+		...funcs,
+	};
 	path = String(path).trim();
 	path[0] === '$' || err('Path must start with $');
 	const segs = [];
 	let j = 1;
 	while (j < path.length) {
+		// Whitespace is allowed before a segment, never inside one.
+		while (/\s/.test(path[j])) j++;
 		let desc = false;
 		if (path.startsWith('..', j)) { desc = true; j += 2; }
 		else if (path[j] === '.') j++;
@@ -127,10 +173,12 @@ export function query(path, funcs) {
 		if (path[j] === '[') {
 			const end = close(path, j);
 			const sels = split(path.slice(j + 1, end)).map(s => selector(s, funcs));
-			segs.push({ desc, apply: (ns, root) => sels.flatMap(sel => sel(ns, root)) });
+			// Node-major order (RFC 9535): all selectors run per node before
+			// moving to the next node.
+			segs.push({ desc, apply: (ns, root) => ns.flatMap(n => sels.flatMap(sel => sel([n], root))) });
 			j = end + 1;
 		} else {
-			const m = /^(\*|[A-Za-z_]\w*)/.exec(path.slice(j)) || err('Bad path near index ' + j);
+			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
 			j += m[1].length;
 			const k = m[1];
 			segs.push({ desc, apply: k === '*' ? ns => ns.flatMap(kids) : ns => ns.flatMap(n => child(n, k)) });
