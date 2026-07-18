@@ -1,8 +1,8 @@
 # padvinder
 
-A tiny, CSP-safe JSONPath engine for JavaScript. **~2.9KB min+gzip (~4.3KB with [xprsn](https://www.npmjs.com/package/xprsn)), one dependency. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
+A tiny, CSP-safe JSONPath engine for JavaScript. **~2.75KB min+gzip, zero dependencies. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
 
-*Padvinder* is Dutch for "pathfinder", and also what we call a scout. It implements RFC 9535 JSONPath, and on top of that accepts any [xprsn](https://github.com/robinvdvleuten/xprsn) expression as a filter, parsed by a real parser instead of handed to JavaScript. There is no `eval` and no `new Function`, so a query cannot smuggle code into your application, and the engine runs under a strict Content Security Policy.
+*Padvinder* is Dutch for "pathfinder", and also what we call a scout. It implements RFC 9535 JSONPath, filters included, with a real parser instead of the generated code that filter evaluation usually relies on. There is no `eval` and no `new Function`, so a query cannot smuggle code into your application, and the engine runs under a strict Content Security Policy.
 
 ```js
 import { query, find } from 'padvinder';
@@ -18,15 +18,15 @@ const data = {
 };
 
 // One-shot:
-find('$..book[?(@.price < 10)].title', data);
+find('$..book[?@.price < 10].title', data);
 // => ['Sayings of the Century', 'Moby Dick']
 
 // Compile once, run many times:
-const cheap = query('$.store.book[?(@.price < 10 and @.category == "fiction")].title');
+const cheap = query('$.store.book[?@.price < 10 && @.category == "fiction"].title');
 cheap(data); // => ['Moby Dick']
 
-// Custom functions inside filters:
-find('$..book[?(sale(@))].title', data, { sale: b => b.price < 9 });
+// Register your own filter functions:
+find('$..book[?sale(@)].title', data, { sale: b => b.price < 9 });
 ```
 
 ## API
@@ -54,28 +54,34 @@ Shorthand for `query(path, functions)(data)`.
 
 ## Filters
 
-Filters speak two grammars, tried in order. A filter that parses as **RFC 9535 grammar** gets RFC semantics: `[?@.a]` is an existence test (it matches a present `null`), comparisons treat missing paths as Nothing instead of throwing, `==` is deep structural equality, subqueries like `count(@.*)` yield nodelists, and the `length()`, `count()`, `value()`, `match()`, and `search()` functions work as specified. Anything else compiles as an **[xprsn expression](https://github.com/robinvdvleuten/xprsn#syntax)** with `@` bound to the candidate node and `$` to the root. That is where method calls, arithmetic, `?.`/`??`, and your own registry functions live:
+Filters follow the RFC 9535 grammar. Comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`), the logical operators `&&`, `||`, and `!`, and parentheses combine two kinds of operand: literals and *queries*. A bare query is an existence test, so `[?@.a]` keeps children that have an `a`, including a present `null`. A query used in a comparison is read for its value, and a missing path compares as "nothing" rather than throwing, so `[?@.a.b == 1]` is safe even when `a` is absent. `==` is deep structural equality.
 
 ```js
-find('$.store.book[?(@.title.startsWith("S"))]', data);
-find('$.store.book[?(@.price > $.store.bicycle.price)]', data);
-find('$.users[?(@.profile?.verified ?? false)]', data);
-find('$.items[?(@.qty * @.price > 100)]', data);
+find('$.store.book[?@.price < 10]', data);
+find('$.store.book[?@.price > $.store.bicycle.price]', data);           // $ is the root
+find('$.store.book[?@.category == "fiction" && @.price < 20]', data);
+find('$.store.book[?!@.sale]', data);
 ```
 
-The RFC grammar covers regular expressions through `match()` and `search()`. For anything else, register a function and call it from a filter: `find('$.a[?(luhn(@.card))]', data, { luhn: valid })`. Registry functions only resolve in the xprsn grammar, so a name that shadows an RFC function still reaches the RFC one.
+Five functions ship built in: `length()`, `count()`, `value()`, and the regular-expression tests `match()` (full match) and `search()` (substring). Register your own for anything else, and call them from a filter with `@` as the current node:
+
+```js
+find('$.book[?length(@.title) > 20]', data);
+find('$.book[?match(@.isbn, "[0-9]{13}")]', data);
+find('$.book[?luhn(@.code)]', data, { luhn: valid });                   // your function
+```
 
 ## Content Security Policy
 
-padvinder works under `script-src 'self'` with no `unsafe-eval`. Paths and RFC filters compile to a chain of closures, and xprsn-grammar filters compose closures the same way. Query text is never turned into JavaScript.
+padvinder works under `script-src 'self'` with no `unsafe-eval`. Paths and filters compile to a chain of closures. Query text is never turned into JavaScript.
 
 This matters for JSONPath specifically because filter expressions are the classic weak spot: jsonpath-plus evaluated them by executing generated code, which led to remote code execution via crafted queries ([CVE-2024-21534](https://nvd.nist.gov/vuln/detail/CVE-2024-21534)) and follow-up bypasses. padvinder's filters go through a parser that has no route to code execution, so a hostile query can, at worst, return the wrong nodes or throw. The test suite runs under `node --disallow-code-generation-from-strings`, which throws on any string-to-code construct the same way a strict CSP does.
 
 ## Safety
 
 - Queries read the data you pass in and never modify it.
-- `__proto__`, `constructor`, and `prototype` never match, in paths or in filters. Prototype-chain properties are invisible: matching is own-properties only. In an RFC filter a blocked key is simply absent (the child does not match); in an xprsn filter it throws, same as reading it anywhere else.
-- xprsn-grammar filters inherit every xprsn guard, and registry functions resolve only from what you provide.
+- `__proto__`, `constructor`, and `prototype` never match, in paths or in filters. Prototype-chain properties are invisible: matching is own-properties only, so a filter like `[?@.constructor]` finds nothing rather than reaching `Object.prototype`.
+- Registered functions resolve only from what you provide, and receive plain data values as arguments.
 
 ## License
 

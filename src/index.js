@@ -198,9 +198,8 @@ let cmp = (op, a, b) =>
 	op === '>' ? cmp('<', b, a) :
 	(typeof a === typeof b && (typeof a === 'number' || typeof a === 'string') && a < b); // <
 
-// The five RFC function extensions with their argument and return types.
-// Any other name is a parse failure, which routes the whole filter to the
-// xprsn fallback where the user registry lives.
+// The five built-in RFC function extensions with their argument and return
+// types. A name absent here is looked up in the caller's registry instead.
 const RFCFN = {
 	length: { args: ['value'], ret: 'value', make: ([a]) => (n, r) => {
 		const v = a(n, r);
@@ -219,8 +218,7 @@ const RFCFN = {
 };
 
 // Parse one filter body as the RFC grammar, producing (node, root) => boolean.
-// Throws SyntaxError when the source is not RFC grammar; the caller then
-// compiles it as an xprsn expression instead.
+// Throws SyntaxError on anything that is not valid RFC 9535 filter syntax.
 let rfcFilter = (src, fns) => {
 	let k = 0;
 	const fail = () => err('Bad filter: ' + src);
