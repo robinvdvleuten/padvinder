@@ -11,9 +11,17 @@ test('blocked keys never match', t => {
 	t.end();
 });
 
-test('xprsn guards apply inside filters', t => {
-	t.throws(() => find('$.list[?(@.constructor)]', { list: [{}] }), TypeError);
-	t.throws(() => find('$.list[?(@["__proto__"])]', { list: [{}] }), TypeError);
+test('blocked keys inside RFC-shaped filters match nothing', t => {
+	t.deepEqual(find('$.list[?(@.constructor)]', { list: [{}] }), [], 'existence test, no throw');
+	t.deepEqual(find('$.list[?(@["__proto__"])]', { list: [{}] }), []);
+	t.end();
+});
+
+test('xprsn guards apply inside fallback filters', t => {
+	// String concatenation is not RFC grammar, so these route to xprsn,
+	// where blocked keys throw.
+	t.throws(() => find('$.list[?(@["cons" + "tructor"])]', { list: [{}] }), TypeError);
+	t.throws(() => find('$.list[?(@["__pro" + "to__"])]', { list: [{}] }), TypeError);
 	t.end();
 });
 

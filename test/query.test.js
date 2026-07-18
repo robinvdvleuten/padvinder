@@ -72,6 +72,33 @@ test('filters are xprsn expressions', t => {
 	t.end();
 });
 
+test('RFC filter semantics', t => {
+	t.deepEqual(find('$.list[?@.a]', { list: [{ a: null }, { a: false }, {}] }), [{ a: null }, { a: false }],
+		'existence matches present-but-falsy values');
+	t.deepEqual(find('$.list[?@.a == @.b].n', { list: [{ n: 1, a: [1, [2]], b: [1, [2]] }, { n: 2, a: [1], b: [2] }] }), [1],
+		'== is deep equality');
+	t.deepEqual(find('$.list[?@.missing == @.gone].n', { list: [{ n: 1 }] }), [1],
+		'Nothing equals Nothing');
+	t.deepEqual(find('$.list[?@.a.b == 1].n', { list: [{ n: 1, a: { b: 1 } }, { n: 2 }] }), [1],
+		'missing paths compare as Nothing instead of throwing');
+	t.deepEqual(find('$.list[?count(@.*) > 2].n', { list: [{ n: 1, a: 1, b: 2, c: 3 }, { n: 2 }] }), [1],
+		'count() over a subquery nodelist');
+	t.deepEqual(find('$[?@[?@ > 1]]', [[1], [1, 2], [0]]), [[1, 2]], 'nested filters');
+	t.deepEqual(find('$.list[?length(@.name) == 5].name', { list: [{ name: 'Robin' }, { name: 'Bo' }] }), ['Robin']);
+	t.deepEqual(find('$.list[?match(@.sku, "X-[0-9]+")].sku', { list: [{ sku: 'X-42' }, { sku: 'Y-1' }] }), ['X-42']);
+	t.end();
+});
+
+test('both filter grammars coexist in one path', t => {
+	const data = { groups: [{ size: 2, items: ['Sword', 'Moby'] }, { size: 1, items: ['Saying'] }] };
+	t.deepEqual(
+		find('$.groups[?@.size > 1].items[?(@.startsWith("S"))]', data),
+		['Sword'],
+		'an RFC filter feeding an xprsn method-call filter'
+	);
+	t.end();
+});
+
 test('filters can reference the root as $', t => {
 	t.deepEqual(
 		find('$.store.book[?(@.price > $.store.bicycle.price)].title', data),
