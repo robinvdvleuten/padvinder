@@ -25,6 +25,16 @@ test('inherited properties never match', t => {
 	t.end();
 });
 
+test('recursive descent survives cyclic data', t => {
+	const node = { name: 'x' };
+	node.self = node;
+	t.deepEqual(find('$..name', { node }), ['x'], 'cycle visited once, no hang');
+
+	const shared = { v: 1 };
+	t.deepEqual(find('$..v', { p: shared, q: shared }), [1, 1], 'diamond refs still match per location');
+	t.end();
+});
+
 test('queries never modify the data', t => {
 	const data = { store: { book: [{ price: 5 }] } };
 	const snapshot = JSON.stringify(data);

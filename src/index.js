@@ -14,8 +14,18 @@ let kids = n => n && typeof n === 'object'
 	? (Array.isArray(n) ? [...n] : Object.keys(n).filter(k => !BLOCK(k)).map(k => n[k]))
 	: [];
 
-// Node plus all descendants, depth-first.
-let all = n => [n, ...kids(n).flatMap(all)];
+// Node plus all descendants, depth-first. The ancestor set breaks cycles so
+// self-referencing data cannot hang recursive descent; it is unwound on exit
+// so a node shared by two branches still shows up under both.
+let all = (n, seen = new Set()) => {
+	if (n && typeof n === 'object') {
+		if (seen.has(n)) return [];
+		seen.add(n);
+	}
+	const out = [n, ...kids(n).flatMap(c => all(c, seen))];
+	seen.delete(n);
+	return out;
+};
 
 let child = (n, k) => {
 	if (n == null || typeof n !== 'object' || BLOCK(k)) return [];
@@ -122,7 +132,7 @@ export function query(path, funcs) {
 			segs.push({ desc, apply: k === '*' ? ns => ns.flatMap(kids) : ns => ns.flatMap(n => child(n, k)) });
 		}
 	}
-	return data => segs.reduce((ns, s) => s.apply(s.desc ? ns.flatMap(all) : ns, data), [data]);
+	return data => segs.reduce((ns, s) => s.apply(s.desc ? ns.flatMap(n => all(n)) : ns, data), [data]);
 }
 
 /**
