@@ -1,9 +1,8 @@
 /**
- * Tiny, CSP-safe JSONPath engine powered by xprsn expressions.
+ * Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine.
  * Paths and filters compile to a composition of closures; query text is
  * never turned into JavaScript, so strict CSP is satisfied.
  */
-import { compile } from 'xprsn';
 
 const BLOCK = k => k === '__proto__' || k === 'constructor' || k === 'prototype';
 
@@ -58,22 +57,8 @@ let child = (n, k) => {
 	return Object.hasOwn(n, k) ? [n[k]] : [];
 };
 
-// Quoted string → value. Unescape via JSON, single quotes normalized first
-// (the same trick xprsn uses for its string literals).
+// Quoted string → value. Unescape via JSON, single quotes normalized first.
 let unq = s => JSON.parse(s[0] === '"' ? s : '"' + s.slice(1, -1).replace(/\\'/g, "'").replace(/"/g, '\\"') + '"');
-
-// Rewrite `@` → `_` and `$` → `_root` outside string literals, so a filter
-// becomes a plain xprsn expression with the node and root bound as variables.
-let vars = s => {
-	let out = '', q = 0;
-	for (let j = 0; j < s.length; j++) {
-		const c = s[j];
-		if (q) { out += c; if (c === '\\') out += s[++j]; else if (c === q) q = 0; }
-		else if (c === '"' || c === "'") { q = c; out += c; }
-		else out += c === '@' ? '_' : c === '$' ? '_root' : c;
-	}
-	return out;
-};
 
 // Index of the `]` matching the `[` at s[j], respecting nesting and strings.
 let close = (s, j) => {
@@ -108,15 +93,9 @@ let split = s => {
 let selector = (s, fns) => {
 	if (s === '*') return ns => ns.flatMap(kids);
 	if (s[0] === '?') {
-		// RFC grammar first; anything that does not parse as RFC compiles as
-		// an xprsn expression (the dialect superset with the user registry).
-		let test;
-		try {
-			test = rfcFilter(s.slice(1), fns);
-		} catch {
-			const e = compile(vars(s.slice(1)), fns);
-			test = (n, root) => e({ _: n, _root: root });
-		}
+		// `?expr` and the classic `?(expr)` both parse: parentheses are ordinary
+		// grouping in the filter grammar, so no unwrapping is needed.
+		const test = rfcFilter(s.slice(1), fns);
 		return (ns, root) => ns.flatMap(kids).filter(c => test(c, root));
 	}
 	const sl = /^(-?\d*)\s*:\s*(-?\d*)(?:\s*:\s*(-?\d+)?)?$/.exec(s);
@@ -244,7 +223,7 @@ const RFCFN = {
 // compiles it as an xprsn expression instead.
 let rfcFilter = (src, fns) => {
 	let k = 0;
-	const fail = () => err('not RFC 9535');
+	const fail = () => err('Bad filter: ' + src);
 	const ws = () => { while (/\s/.test(src[k])) k++; };
 	const eat = c => src.startsWith(c, k) && (k += c.length, !0);
 
@@ -300,12 +279,24 @@ let rfcFilter = (src, fns) => {
 	};
 	const funcExpr = () => {
 		const m = /^[a-z][a-z0-9_]*/.exec(src.slice(k)) || fail();
-		const spec = RFCFN[m[0]] || fail();
 		k += m[0].length;
 		ws(); eat('(') || fail();
-		const args = spec.args.map((t, x) => (x && (ws(), eat(',') || fail()), arg(t)));
-		ws(); eat(')') || fail();
-		return { type: spec.ret, fn: spec.make(args) };
+		const spec = RFCFN[m[0]];
+		if (spec) {
+			const args = spec.args.map((t, x) => (x && (ws(), eat(',') || fail()), arg(t)));
+			ws(); eat(')') || fail();
+			return { type: spec.ret, fn: spec.make(args) };
+		}
+		// Registered function extension: value-type args, and its result may be
+		// used as a value or (unlike the built-ins) as a truthiness test.
+		Object.hasOwn(fns, m[0]) || err(m[0] + ' is not a function');
+		const f = fns[m[0]], args = [];
+		ws();
+		if (!eat(')')) {
+			do args.push(arg('value')); while (ws(), eat(','));
+			ws(); eat(')') || fail();
+		}
+		return { type: 'user', fn: (n, r) => f(...args.map(a => a(n, r))) };
 	};
 
 	// A comparable/test primary: query, literal, or function call.
@@ -315,7 +306,7 @@ let rfcFilter = (src, fns) => {
 		const lit = literal();
 		if (lit) return { v: lit };
 		const f = funcExpr();
-		return f.type === 'logical' ? { l: f.fn } : { v: f.fn };
+		return f.type === 'logical' ? { l: f.fn } : f.type === 'user' ? { v: f.fn, u: !0 } : { v: f.fn };
 	};
 	// ValueType position: literals, value functions, and singular queries only.
 	const asValue = p => {
@@ -344,8 +335,9 @@ let rfcFilter = (src, fns) => {
 			return (n, r) => cmp(op, a(n, r), b(n, r));
 		}
 		// Test position: a query is an existence test, a logical function is
-		// itself; a bare literal is not RFC grammar.
-		const t = p.q ? ((q => (n, r) => q.run(n, r).length > 0)(p.q)) : (p.l || fail());
+		// itself, a registered function is truthiness-tested; a bare literal or
+		// a built-in value function is not a valid test.
+		const t = p.q ? ((q => (n, r) => q.run(n, r).length > 0)(p.q)) : p.u ? p.v : (p.l || fail());
 		return neg ? (n, r) => !t(n, r) : t;
 	};
 	const and = () => {
@@ -368,23 +360,13 @@ let rfcFilter = (src, fns) => {
 /**
  * Compile a JSONPath query once, run it many times.
  *
- * @param {string} path The query, e.g. `'$.store.book[?(@.price < 10)].title'`.
- * @param {Record<string, Function>} [funcs] Functions callable inside filters.
+ * @param {string} path The query, e.g. `'$.store.book[?@.price < 10].title'`.
+ * @param {Record<string, Function>} [funcs] Custom function extensions callable in filters, alongside the built-in `length`, `count`, `value`, `match`, and `search`.
  * @returns {(data?: any) => any[]} Runner returning all matches (empty array for none).
- * @throws {SyntaxError} On malformed paths or filter expressions.
+ * @throws {SyntaxError} On malformed paths or filters.
  */
 export function query(path, funcs) {
-	// RFC 9535 function extensions, available in every filter. Overridable
-	// and extendable via the caller's registry.
-	funcs = {
-		length: x => typeof x === 'string' ? [...x].length
-			: Array.isArray(x) ? x.length
-			: x && typeof x === 'object' ? Object.keys(x).length
-			: undefined,
-		match: (s, p) => reTest(s, p, true),
-		search: (s, p) => reTest(s, p, false),
-		...funcs,
-	};
+	funcs = funcs || {};
 	path = String(path).trim();
 	path[0] === '$' || err('Path must start with $');
 	const { segs } = segments(path, 1, funcs, false);

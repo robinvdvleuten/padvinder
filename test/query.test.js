@@ -62,13 +62,14 @@ test('unions', t => {
 	t.end();
 });
 
-test('filters are xprsn expressions', t => {
-	t.deepEqual(find('$.store.book[?(@.price < 10)].title', data), ['Sayings of the Century', 'Moby Dick']);
-	t.deepEqual(find('$..book[?(@.category == "fiction" and @.price < 20)].title', data), ['Sword of Honour', 'Moby Dick']);
-	t.deepEqual(find("$.store.book[?(@.title.startsWith('S'))].title", data), ['Sayings of the Century', 'Sword of Honour']);
-	t.deepEqual(find('$.store.book[?(@.category in ["reference"])].title', data), ['Sayings of the Century']);
-	t.deepEqual(find('$.store.book[?(@.missing?.deep)].title', data), [], 'null-safe access in filters');
-	t.deepEqual(find('$.store.book[?((@.price ?? 99) < 9)].title', data), ['Sayings of the Century', 'Moby Dick']);
+test('filters', t => {
+	t.deepEqual(find('$.store.book[?@.price < 10].title', data), ['Sayings of the Century', 'Moby Dick']);
+	t.deepEqual(find('$.store.book[?(@.price < 10)].title', data), ['Sayings of the Century', 'Moby Dick'], 'parens optional');
+	t.deepEqual(find('$..book[?@.category == "fiction" && @.price < 20].title', data), ['Sword of Honour', 'Moby Dick']);
+	t.deepEqual(find('$..book[?@.category == "reference" || @.price > 20].title', data), ['Sayings of the Century', 'The Lord of the Rings']);
+	t.deepEqual(find('$.store.book[?!(@.price < 10)].title', data), ['Sword of Honour', 'The Lord of the Rings'], 'negation');
+	t.deepEqual(find("$.store.book[?search(@.title, '^S')].title", data), ['Sayings of the Century', 'Sword of Honour']);
+	t.deepEqual(find('$.store.book[?@.missing.deep].title', data), [], 'missing path is absent, not an error');
 	t.end();
 });
 
@@ -89,12 +90,12 @@ test('RFC filter semantics', t => {
 	t.end();
 });
 
-test('both filter grammars coexist in one path', t => {
-	const data = { groups: [{ size: 2, items: ['Sword', 'Moby'] }, { size: 1, items: ['Saying'] }] };
+test('chained filters across segments', t => {
+	const data = { groups: [{ size: 2, items: [{ n: 'Sword', p: 5 }, { n: 'Moby', p: 50 }] }, { size: 1, items: [{ n: 'Saying', p: 1 }] }] };
 	t.deepEqual(
-		find('$.groups[?@.size > 1].items[?(@.startsWith("S"))]', data),
+		find('$.groups[?@.size > 1].items[?@.p < 10].n', data),
 		['Sword'],
-		'an RFC filter feeding an xprsn method-call filter'
+		'one filter feeds the next'
 	);
 	t.end();
 });

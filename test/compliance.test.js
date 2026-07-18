@@ -46,6 +46,6 @@ test('compliance: invalid selectors', t => {
 	}
 	// padvinder is deliberately more lenient than the RFC grammar (it accepts
 	// a superset); pin the floor so strictness never silently regresses.
-	t.ok(rejected >= 174, 'rejects ' + rejected + '/' + total + ' RFC-invalid selectors');
+	t.ok(rejected >= 204, 'rejects ' + rejected + '/' + total + ' RFC-invalid selectors');
 	t.end();
 });

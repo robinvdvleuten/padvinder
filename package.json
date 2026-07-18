@@ -1,7 +1,7 @@
 {
 	"name": "padvinder",
 	"version": "0.1.0",
-	"description": "Tiny, CSP-safe JSONPath engine powered by xprsn expressions. No eval, no new Function.",
+	"description": "Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. No eval, no new Function.",
 	"repository": "robinvdvleuten/padvinder",
 	"license": "MIT",
 	"author": {
@@ -39,11 +39,8 @@
 		"json",
 		"query",
 		"csp",
-		"filter"
+		"rfc9535"
 	],
-	"dependencies": {
-		"xprsn": "^0.2.0"
-	},
 	"devDependencies": {
 		"microbundle": "^0.15.1",
 		"tape": "^5.9.0"
