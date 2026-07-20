@@ -11,16 +11,14 @@
 	},
 	"type": "module",
 	"source": "src/index.js",
-	"main": "./dist/index.cjs",
-	"module": "./dist/index.module.js",
-	"unpkg": "./dist/index.umd.js",
-	"types": "./index.d.ts",
+	"main": "dist/index.cjs",
+	"module": "dist/index.js",
+	"types": "index.d.ts",
 	"exports": {
 		".": {
 			"types": "./index.d.ts",
-			"import": "./dist/index.module.js",
-			"require": "./dist/index.cjs",
-			"default": "./dist/index.module.js"
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
 		}
 	},
 	"files": [
@@ -28,10 +26,21 @@
 		"src",
 		"index.d.ts"
 	],
+	"size-limit": [
+		{
+			"path": "dist/index.js",
+			"limit": "3 kB"
+		},
+		{
+			"path": "dist/index.cjs",
+			"limit": "3 kB"
+		}
+	],
 	"scripts": {
-		"build": "microbundle --no-sourcemap",
+		"build": "tsdown",
 		"cts:update": "curl -sL -o test/cts.json https://raw.githubusercontent.com/jsonpath-standard/jsonpath-compliance-test-suite/main/cts.json && curl -sL -o test/cts.LICENSE https://raw.githubusercontent.com/jsonpath-standard/jsonpath-compliance-test-suite/main/LICENSE",
 		"prepublishOnly": "npm run build",
+		"size": "size-limit",
 		"test": "node --disallow-code-generation-from-strings node_modules/tape/bin/tape test/*.test.js"
 	},
 	"keywords": [
@@ -42,7 +51,9 @@
 		"rfc9535"
 	],
 	"devDependencies": {
-		"microbundle": "^0.15.1",
-		"tape": "^5.9.0"
+		"@size-limit/file": "^12.1.0",
+		"size-limit": "^12.1.0",
+		"tape": "^5.9.0",
+		"tsdown": "^0.22.12"
 	}
 }

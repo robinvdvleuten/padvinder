@@ -1,11 +1,12 @@
 # padvinder
 
-Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. Same family and toolchain as xprsn and sjabloon (plain JS + JSDoc, tape, microbundle), but no runtime dependency: the filter grammar is implemented here, not delegated.
+Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. Same family and toolchain as xprsn and sjabloon (plain JS + JSDoc, tape, tsdown), but no runtime dependency: the filter grammar is implemented here, not delegated.
 
 ## Commands
 
 - `npm test` — tape suites under `node --disallow-code-generation-from-strings` (strict-CSP simulation).
-- `npm run build` — microbundle → `dist/` (ESM/CJS/UMD) + `index.d.ts` from JSDoc. Prints min+gzip sizes.
+- `npm run build` — tsdown (rolldown + oxc), configured in `tsdown.config.js` → `dist/` (ESM/CJS). Type generation is off; `index.d.ts` is hand-written.
+- `npm run size` — size-limit checks the gzip size of `dist/index.js` and `dist/index.cjs` against the budgets in `package.json`.
 - Run a single suite: `npx tape test/query.test.js`
 
 ## Architecture
@@ -21,7 +22,7 @@ Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a re
 1. **CSP safety is non-negotiable.** Same rules as the siblings: no string-to-code paths, the suite runs under `--disallow-code-generation-from-strings`, and a test scans the source — don't use the words "eval" or "new Function" even in comments.
 2. **`child()`, `kids()`, and `deepEq()` are the access boundary.** All data reads go through them; each skips `__proto__`/`constructor`/`prototype` and matches own properties only (`Object.hasOwn`). Never add a read path that bypasses them. Blocked keys silently match nothing everywhere (queries are search, not access), including inside filters — that is intentional and pinned by the safety suite.
 3. **`rfcFilter()` is a parser over closures, not a source generator.** It builds `(node, root) => boolean` from pre-existing functions; it never emits or runs source text. It must consume the whole filter and throw `SyntaxError` on anything non-RFC — there is no fallback, so a malformed filter is a hard error, not a reinterpretation.
-4. **Zero runtime dependencies.** This is the point of the package. Do not reintroduce a dependency for filter evaluation; the grammar lives here. `devDependencies` (microbundle, tape) are fine.
+4. **Zero runtime dependencies.** This is the point of the package. Do not reintroduce a dependency for filter evaluation; the grammar lives here. `devDependencies` (tsdown, size-limit, tape) are fine.
 5. Queries must never modify the data (a test snapshots and compares).
 6. Size is a soft goal (~2.75KB min+gzip). The compliance suite (`npm run cts:update`) is the correctness gate, not size.
 
@@ -38,4 +39,4 @@ Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a re
 
 - Tabs for indentation. Tests in `test/*.test.js` (`query`, `errors`, `safety` suites).
 - Do not mention Symfony in code, comments, or docs.
-- `dist/` is gitignored; `index.d.ts` is generated from JSDoc — edit the JSDoc in `src/index.js`.
+- `dist/` is gitignored build output. `index.d.ts` is **hand-written** (bundler type generation is off via `dts: false` in `tsdown.config.js`) — keep it in sync with the JSDoc in `src/index.js` by hand.
