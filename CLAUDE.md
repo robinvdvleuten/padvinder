@@ -8,6 +8,7 @@ Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. Same family and toolch
 - `npm run build` — tsdown (rolldown + oxc), configured in `tsdown.config.js` → `dist/` (ESM/CJS). Type generation is off; `index.d.ts` is hand-written.
 - `npm run size` — size-limit checks the gzip size of `dist/index.js` and `dist/index.cjs` against the budgets in `package.json`.
 - Run a single suite: `npx tape test/query.test.js`
+- `npm run fuzz` — jazzer.js discovery over `compile`, `find`, `structured` targets in `fuzz/` (run against `src/` under `--disallow-code-generation-from-strings`); `npm run fuzz:regression` replays the committed corpus (the CI gate). See [fuzz/README.md](fuzz/README.md). `fuzz/` is not in `files`, so it is never published.
 
 ## Architecture
 
@@ -40,3 +41,4 @@ Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a re
 - Tabs for indentation. Tests in `test/*.test.js` (`query`, `errors`, `safety` suites).
 - Do not mention Symfony in code, comments, or docs.
 - `dist/` is gitignored build output. `index.d.ts` is **hand-written** (bundler type generation is off via `dts: false` in `tsdown.config.js`) — keep it in sync with the JSDoc in `src/index.js` by hand.
+- New path/filter syntax or safety guards must be reflected in the structured fuzz generator (`fuzz/structured.fuzz.js`): teach the generator the new form and add an oracle or fixed battery for any new invariant.
