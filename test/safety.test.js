@@ -26,6 +26,24 @@ test('inherited properties never match', t => {
 	t.end();
 });
 
+test('inherited array indexes never match', t => {
+	// A real array (Array.isArray stays true) with a hole at index 0 whose value
+	// would resolve through a custom prototype — the index, wildcard, descendant,
+	// and slice paths must all read own elements only.
+	const proto = Object.create(Array.prototype);
+	proto[0] = 'inherited';
+	const arr = [];
+	arr.length = 2;
+	arr[1] = 'own';
+	Object.setPrototypeOf(arr, proto);
+	t.deepEqual(find('$.arr[0]', { arr }), [], 'index selector skips the hole');
+	t.deepEqual(find('$.arr[*]', { arr }), ['own'], 'wildcard skips the hole');
+	t.deepEqual(find('$.arr..*', { arr }), ['own'], 'descendant skips the hole');
+	t.deepEqual(find('$.arr[0:2]', { arr }), ['own'], 'slice skips the hole');
+	t.deepEqual(find('$.arr[1]', { arr }), ['own'], 'own index still matches');
+	t.end();
+});
+
 test('recursive descent survives cyclic data', t => {
 	const node = { name: 'x' };
 	node.self = node;

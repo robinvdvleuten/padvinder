@@ -29,9 +29,10 @@ let reTest = (s, p, anchor) => {
 	try { return new RegExp(anchor ? '^(?:' + ire(p) + ')$' : ire(p), 'u').test(s); } catch { return false; }
 };
 
-// Own child values of a node (guarded).
+// Own child values of a node (guarded). Arrays enumerate own indexes only, so
+// a hole never reads an inherited value off the prototype chain.
 let kids = n => n && typeof n === 'object'
-	? (Array.isArray(n) ? [...n] : Object.keys(n).filter(k => !BLOCK(k)).map(k => n[k]))
+	? (Array.isArray(n) ? n.flatMap((v, j) => Object.hasOwn(n, j) ? [v] : []) : Object.keys(n).filter(k => !BLOCK(k)).map(k => n[k]))
 	: [];
 
 // Node plus all descendants, depth-first. The ancestor set breaks cycles so
@@ -52,7 +53,7 @@ let child = (n, k) => {
 	if (Array.isArray(n)) {
 		let j = +k;
 		if (j < 0) j += n.length;
-		return Number.isInteger(j) && j >= 0 && j < n.length ? [n[j]] : [];
+		return Number.isInteger(j) && j >= 0 && j < n.length && Object.hasOwn(n, j) ? [n[j]] : [];
 	}
 	return Object.hasOwn(n, k) ? [n[k]] : [];
 };
@@ -109,11 +110,11 @@ let selector = (s, fns) => {
 			if (st > 0) {
 				const lo = Math.min(Math.max(sl[1] ? norm(+sl[1]) : 0, 0), len);
 				const hi = Math.min(Math.max(sl[2] ? norm(+sl[2]) : len, 0), len);
-				for (let j = lo; j < hi; j += st) out.push(n[j]);
+				for (let j = lo; j < hi; j += st) if (Object.hasOwn(n, j)) out.push(n[j]);
 			} else {
 				const hi = Math.min(Math.max(sl[1] ? norm(+sl[1]) : len - 1, -1), len - 1);
 				const lo = Math.min(Math.max(sl[2] ? norm(+sl[2]) : -1, -1), len - 1);
-				for (let j = hi; j > lo; j += st) out.push(n[j]);
+				for (let j = hi; j > lo; j += st) if (Object.hasOwn(n, j)) out.push(n[j]);
 			}
 			return out;
 		});
@@ -279,7 +280,9 @@ let rfcFilter = (src, fns) => {
 		const m = /^[a-z][a-z0-9_]*/.exec(src.slice(k)) || fail();
 		k += m[0].length;
 		ws(); eat('(') || fail();
-		const spec = RFCFN[m[0]];
+		// Own-property lookup only: a name like `constructor` must not resolve
+		// to an inherited Object.prototype member.
+		const spec = Object.hasOwn(RFCFN, m[0]) ? RFCFN[m[0]] : undefined;
 		if (spec) {
 			const args = spec.args.map((t, x) => (x && (ws(), eat(',') || fail()), arg(t)));
 			ws(); eat(')') || fail();

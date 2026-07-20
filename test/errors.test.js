@@ -16,5 +16,6 @@ test('bad filter expressions fail at compile time', t => {
 	t.throws(() => query('$.a[?(@.x >)]'), SyntaxError);
 	t.throws(() => query('$.a[?(nope(@))]'), /nope is not a function/);
 	t.throws(() => query('$.a[?()]'), SyntaxError);
+	t.throws(() => query('$.a[?constructor(@)]'), /constructor is not a function/, 'inherited name is not a built-in function');
 	t.end();
 });
