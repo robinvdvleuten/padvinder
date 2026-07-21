@@ -1,6 +1,6 @@
 # padvinder
 
-A tiny, CSP-safe JSONPath engine for JavaScript. **~2.75KB min+gzip, zero dependencies. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
+A tiny, CSP-safe JSONPath engine for JavaScript. **~4KB min+gzip, zero dependencies. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
 
 [![NPM version](https://img.shields.io/npm/v/padvinder.svg)](https://www.npmjs.com/package/padvinder)
 [![Build Status](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml/badge.svg)](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml)
@@ -82,16 +82,21 @@ find('$.book[?match(@.isbn, "[0-9]{13}")]', data);
 find('$.book[?luhn(@.code)]', data, { luhn: valid });                   // your function
 ```
 
+`match()` and `search()` parse [RFC 9485 I-Regexp](https://www.rfc-editor.org/rfc/rfc9485.html) into a bounded Thompson NFA. Matching does not backtrack. `^` and `$` are supported as anchors for compatibility with the JSONPath compliance suite. JavaScript-only syntax such as `\d`, lookarounds, backreferences, and lazy quantifiers is rejected; use `[0-9]` in place of `\d`.
+
+Patterns are limited to 4,096 Unicode scalar values, 64 nested groups, 4,096 NFA states, and 1,024 repetitions in a range quantifier. Quantifier bounds may contain at most six digits. Subjects are limited to one million Unicode scalar values, and each match stops after one million state transitions. Invalid or over-budget patterns and subjects return no match. Runtime is bounded by the subject length times the number of active NFA states.
+
 ## Content Security Policy
 
 padvinder works under `script-src 'self'` with no `unsafe-eval`. Paths and filters compile to a chain of closures. Query text is never turned into JavaScript.
 
-This matters for JSONPath specifically because filter expressions are the classic weak spot: jsonpath-plus evaluated them by executing generated code, which led to remote code execution via crafted queries ([CVE-2024-21534](https://nvd.nist.gov/vuln/detail/CVE-2024-21534)) and follow-up bypasses. padvinder's filters go through a parser that has no route to code execution, so a hostile query can, at worst, return the wrong nodes or throw. The test suite runs under `node --disallow-code-generation-from-strings`, which throws on any string-to-code construct the same way a strict CSP does.
+This matters for JSONPath specifically because filter expressions are the classic weak spot: jsonpath-plus evaluated them by executing generated code, which led to remote code execution via crafted queries ([CVE-2024-21534](https://nvd.nist.gov/vuln/detail/CVE-2024-21534)) and follow-up bypasses. padvinder parses filters and regular expressions without executing query text. The test suite runs under `node --disallow-code-generation-from-strings`, which throws on any string-to-code construct the same way a strict CSP does.
 
 ## Safety
 
 - Queries read the data you pass in and never modify it.
 - `__proto__`, `constructor`, and `prototype` never match, in paths or in filters. Prototype-chain properties are invisible: matching is own-properties only, so a filter like `[?@.constructor]` finds nothing rather than reaching `Object.prototype`.
+- I-Regexp matching uses bounded NFA simulation instead of a backtracking engine.
 - Registered functions resolve only from what you provide, and receive plain data values as arguments.
 
 ## License

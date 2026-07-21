@@ -22,9 +22,29 @@ const BLOCKED = ['__proto__', 'constructor', 'prototype'];
 const pick = (data, arr) => arr[data.consumeIntegralInRange(0, arr.length - 1)];
 const name = data => data.consumeIntegralInRange(0, 6) === 0 ? pick(data, BLOCKED) : pick(data, KEYS);
 
-// Bounded-safe regex literals only — no nested quantifiers, so match/search
-// cannot trigger catastrophic backtracking. ReDoS resistance is out of scope.
-const SAFE_RE = ['a.*', '[a-z]+', 'fic', '^t-', '\\d+', 'Mob.'];
+const RE_ATOM = ['a', 'b', '.', '[a-z]', '[^b]', '\\p{L}', '\\P{N}'];
+function regex(data, depth) {
+	const a = pick(data, RE_ATOM);
+	if (!depth || data.remainingBytes < 2) return a;
+	const k = data.consumeIntegralInRange(0, 5);
+	if (k === 0) return regex(data, depth - 1) + regex(data, depth - 1);
+	if (k === 1) return `(${regex(data, depth - 1)}|${regex(data, depth - 1)})`;
+	if (k === 2) return `(${regex(data, depth - 1)})${pick(data, ['*', '+', '?'])}`;
+	if (k === 3) return `${a}{${data.consumeIntegralInRange(0, 3)},${data.consumeIntegralInRange(3, 5)}}`;
+	if (k === 4) return '^' + regex(data, depth - 1);
+	return regex(data, depth - 1) + '$';
+}
+function nativeRegex(p, full) {
+	let out = '', cls = false;
+	for (let i = 0; i < p.length; i++) {
+		const c = p[i];
+		if (c === '\\') { out += c + p[++i]; continue; }
+		if (c === '[') cls = true;
+		else if (c === ']') cls = false;
+		out += c === '.' && !cls ? '[^\\n\\r]' : c;
+	}
+	return new RegExp(full ? '^(?:' + out + ')$' : out, 'u');
+}
 
 // A ValueType operand for filters: a singular query, or a literal.
 function operand(data, depth) {
@@ -49,7 +69,7 @@ function filter(data, depth) {
 	if (k === 4) return `!(${filter(data, depth - 1)})`;
 	if (k === 5) {
 		const fn = pick(data, ['match', 'search']);
-		return `${fn}(@.${name(data)}, ${JSON.stringify(pick(data, SAFE_RE))})`;
+		return `${fn}(@.${name(data)}, ${JSON.stringify(regex(data, depth - 1))})`;
 	}
 	// length/count/value comparison
 	const fn = pick(data, ['length', 'count', 'value']);
@@ -156,6 +176,7 @@ function sameResult(a, b) {
 	eq('$.s[?match(@, ".")]', { s: ['a\nb'] }, [], 'I-Regexp dot excludes newline; full-match fails');
 	eq('$.s[?search(@, "(")]', { s: ['a'] }, [], 'invalid pattern -> no match, no throw');
 	eq('$.s[?match(@, "a")]', { s: [123] }, [], 'non-string subject -> no match');
+	eq('$[?search(@, "(a+)+$")]', ['a'.repeat(1000) + '!'], [], 'nested repetition stays bounded');
 })();
 
 // Cyclic recursive descent terminates (bounded; no unions over the cycle).
@@ -202,4 +223,14 @@ export function fuzz(data) {
 	assertReachable(out);
 	const second = run(FIXTURE);
 	assert.ok(sameResult(out, second), 'non-deterministic query: ' + path);
+
+	// Differential oracle over short subjects: native backtracking is safe at
+	// these bounds and checks the NFA's Boolean semantics independently.
+	const pattern = regex(provider, 3);
+	const texts = ['', 'a', 'ab', 'bbb', 'Ä', '1', 'a\nb'];
+	for (const fn of ['match', 'search']) {
+		const full = fn === 'match', expected = texts.filter(x => nativeRegex(pattern, full).test(x));
+		const actual = query(`$[?${fn}(@, ${JSON.stringify(pattern)})]`)(texts);
+		assert.deepStrictEqual(actual, expected, fn + ' mismatch for ' + pattern);
+	}
 }

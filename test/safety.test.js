@@ -67,3 +67,24 @@ test('source contains no string-to-code constructs', t => {
 	t.notOk(/\beval\b|\bFunction\s*\(|new\s+Function/.test(src));
 	t.end();
 });
+
+test('I-Regexp matching has bounded worst-case work', t => {
+	const n = 30_000;
+	const text = 'a'.repeat(n) + '!';
+	const t0 = Date.now();
+
+	t.deepEqual(find('$[?search(@, "(a+)+$")]', [text]), [], 'nested repetition');
+	t.deepEqual(find('$[?match(@, "(a*)*")]', ['a'.repeat(n)]), ['a'.repeat(n)], 'nullable cycle');
+	t.deepEqual(find('$[?search(@, "(a|aa)+$")]', [text]), [], 'ambiguous alternation');
+	t.deepEqual(find('$[?match(@, "a{1000000}")]', ['a']), [], 'huge range rejected');
+	t.deepEqual(find('$[?search(@, ' + JSON.stringify('[' + 'b'.repeat(4093) + ']') + ')]', [text]), [], 'class work cap');
+	t.deepEqual(find('$[?match(@, "a{1024}a{1024}a{1024}a{1024}")]', Array(5000).fill('a')), [], 'invalid pattern cache');
+	t.deepEqual(find('$[?search(@, "")]', ['a'.repeat(1_000_001)]), [], 'subject scalar cap');
+	t.deepEqual(find('$.values[?match(@, $.regex)]', {
+		regex: 'a'.repeat(1_000_000),
+		values: Array(5000).fill('a'),
+	}), [], 'oversized dynamic pattern is not retained');
+
+	t.ok(Date.now() - t0 < 1500, 'completes within the work budget');
+	t.end();
+});

@@ -90,6 +90,43 @@ test('RFC filter semantics', t => {
 	t.end();
 });
 
+test('I-Regexp grammar and Unicode semantics', t => {
+	const match = (p, values) => find('$[?match(@, ' + JSON.stringify(p) + ')]', values);
+	const search = (p, values) => find('$[?search(@, ' + JSON.stringify(p) + ')]', values);
+
+	t.deepEqual(match('(ab|cd)+', ['ab', 'abcd', 'cdab', 'a']), ['ab', 'abcd', 'cdab'], 'groups and alternation');
+	t.deepEqual(match('a{2,4}', ['a', 'aa', 'aaaa', 'aaaaa']), ['aa', 'aaaa'], 'range quantifier');
+	t.deepEqual(match('a|', ['', 'a', 'aa']), ['', 'a'], 'empty alternative');
+	t.deepEqual(match('', ['', 'a']), [''], 'empty full match');
+	t.deepEqual(search('', ['', 'a']), ['', 'a'], 'empty search');
+	t.deepEqual(search('^ab', ['abx', 'zab']), ['abx'], '^ anchors the subject');
+	t.deepEqual(search('ab$', ['zab', 'abz']), ['zab'], '$ anchors the subject');
+	t.deepEqual(match('[-a]+', ['a-a', 'bbb']), ['a-a'], 'leading hyphen in class');
+	t.deepEqual(match('[^a]+', ['bbb', 'aba']), ['bbb'], 'negated class');
+	t.deepEqual(match('[\\[]+', ['[[', ']']), ['[['], 'escaped opening bracket');
+	t.deepEqual(match('[\\]]+', [']]', '[']), [']]'], 'escaped closing bracket');
+	t.deepEqual(match('[\\\\]+', ['\\', '/']), ['\\'], 'escaped backslash');
+	t.deepEqual(match('[\\n-\\r]+', ['\n\f\r', '\t']), ['\n\f\r'], 'escaped range endpoints');
+	t.deepEqual(match('\\p{Lu}+', ['ABC', 'Abc', 'Ä']), ['ABC', 'Ä'], 'Unicode property');
+	t.deepEqual(match('\\P{Lu}+', ['abc', 'ABC']), ['abc'], 'Unicode property complement');
+	t.deepEqual(match('.', ['x', '\u2028', '\n', '😀']), ['x', '\u2028', '😀'], 'dot uses Unicode scalars and excludes newline');
+	t.end();
+});
+
+test('invalid or over-budget I-Regexp patterns match nothing', t => {
+	const run = p => find('$[?match(@, ' + JSON.stringify(p) + ')]', ['a', 'aaa']);
+	for (const p of ['\\d+', '(?=a)', '(a)\\1', 'a+?', '[^]', '[[]', '[a[b]', '[z-a]', '\ud800', 'a{1025}', '('.repeat(65) + 'a' + ')'.repeat(65)]) {
+		t.deepEqual(run(p), [], p);
+	}
+	t.deepEqual(run('a'.repeat(4097)), [], 'pattern length cap');
+	t.deepEqual(run('a{0001024}'), [], 'quantifier digit cap');
+	t.deepEqual(run('('.repeat(64) + 'a' + ')'.repeat(64)), ['a'], 'deepest group nesting compiles');
+	t.deepEqual(find('$[?match(@, "a{1024}")]', ['a'.repeat(1024)]), ['a'.repeat(1024)], 'largest range compiles');
+	t.deepEqual(find('$[?match(@, ' + JSON.stringify('a'.repeat(4094)) + ')]', ['a'.repeat(4094)]), ['a'.repeat(4094)], 'largest NFA compiles');
+	t.deepEqual(find('$[?match(@, ' + JSON.stringify('[' + 'a'.repeat(4094) + ']') + ')]', ['a']), ['a'], 'largest pattern compiles');
+	t.end();
+});
+
 test('chained filters across segments', t => {
 	const data = { groups: [{ size: 2, items: [{ n: 'Sword', p: 5 }, { n: 'Moby', p: 50 }] }, { size: 1, items: [{ n: 'Saying', p: 1 }] }] };
 	t.deepEqual(
