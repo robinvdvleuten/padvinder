@@ -1,6 +1,6 @@
 # padvinder
 
-Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. Same family and toolchain as xprsn and sjabloon (plain JS + JSDoc, tape, tsdown), but no runtime dependency: the filter grammar is implemented here, not delegated.
+Tiny, CSP-safe RFC 9535 JSONPath engine. Same family and toolchain as xprsn and sjabloon (plain JS + JSDoc, tape, tsdown). The filter grammar lives here; bounded I-Regexp matching comes from treffer.
 
 ## Commands
 
@@ -12,23 +12,23 @@ Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. Same family and toolch
 
 ## Architecture
 
-The entire implementation is `src/index.js` (~580 lines, one file by design). `segments(path, j, fns, soft)` parses consecutive segments into closures `(nodes, root) => nodes`; `run()` reduces them over a start nodelist. `query()` calls it in hard mode (`soft` false, errors on junk); the filter parser calls it in soft mode (stops at the first char that cannot start a segment) to parse embedded queries. No JSONPath AST, no code generation.
+The entire implementation is `src/index.js` (~420 lines, one file by design). `segments(path, j, fns, soft)` parses consecutive segments into closures `(nodes, root) => nodes`; `run()` reduces them over a start nodelist. `query()` calls it in hard mode (`soft` false, errors on junk); the filter parser calls it in soft mode (stops at the first char that cannot start a segment) to parse embedded queries. No JSONPath AST, no code generation.
 
 Bracket contents are scanned by `close()` (matching `]` with nesting and string awareness) and `split()` (top-level commas for unions). `child()`/`kids()` are the only data-access paths. Each segment carries a `sing` flag (singular: one name/index selector, not a descendant) that the filter parser uses to accept or reject a query in ValueType position.
 
 Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a recursive-descent parser (`or`/`and`/`basic`/`primary`) producing `(node, root) => boolean`. Queries run through `segments()`+`run()`; a bare query is an existence test (nodelist length); `cmp()` implements RFC comparison (deep `==` via `deepEq`, `NOTHING` sentinel for absent singular queries, orderings only for same-typed number/string pairs). The five built-in function extensions live in `RFCFN` with arg/return typing; a name not in `RFCFN` is looked up in the caller's registry and treated as a function extension taking value-type args (usable as a value or as a truthiness test — the one deliberate step beyond strict RFC, and it never affects the compliance suite, which only exercises the built-ins). A genuinely malformed filter throws `SyntaxError` at compile time; there is no fallback.
 
-`match()`/`search()` use `reParse()` → `reCompile()` → `reRun()`: an RFC 9485 parser builds a bounded Thompson NFA, then set-based simulation evaluates Unicode scalar values without backtracking. `^`/`$` remain as CTS-compatible anchors. Invalid or over-budget inputs return false. Limits: 4,096 pattern scalars/states, 64 nested groups, 1,024 range repetitions, one million subject scalars, and one million state transitions per match.
+`match()`/`search()` compile through treffer with `{ anchors: true }`. `reTest()` keeps a one-entry positive or negative cache so a document-supplied pattern compiles at most once while filtering a document. Treffer errors and resource-limit failures become false, preserving RFC function behavior.
 
 ## Hard constraints
 
 1. **CSP safety is non-negotiable.** Same rules as the siblings: no string-to-code paths, the suite runs under `--disallow-code-generation-from-strings`, and a test scans the source — don't use the words "eval" or "new Function" even in comments.
 2. **`child()`, `kids()`, and `deepEq()` are the access boundary.** All data reads go through them; each skips `__proto__`/`constructor`/`prototype` and matches own properties only (`Object.hasOwn`). Never add a read path that bypasses them. Blocked keys silently match nothing everywhere (queries are search, not access), including inside filters — that is intentional and pinned by the safety suite.
 3. **`rfcFilter()` is a parser over closures, not a source generator.** It builds `(node, root) => boolean` from pre-existing functions; it never emits or runs source text. It must consume the whole filter and throw `SyntaxError` on anything non-RFC — there is no fallback, so a malformed filter is a hard error, not a reinterpretation.
-4. **Zero runtime dependencies.** This is the point of the package. Do not reintroduce a dependency for filter evaluation; the grammar lives here. `devDependencies` (tsdown, size-limit, tape) are fine.
-5. **I-Regexp execution must stay bounded.** Never pass an attacker-controlled pattern and subject to a backtracking matcher. Preserve all parser, state, range, and transition limits; epsilon closure must keep a visited set, and substring search must remain one forward pass.
+4. **Treffer is the only runtime dependency.** The JSONPath and filter grammars stay local. Do not add another parser or matcher dependency.
+5. **I-Regexp execution must stay bounded.** Keep `match()`/`search()` on treffer with `{ anchors: true }`, preserve the one-entry negative cache and oversized-pattern retention guard, and convert matcher errors to false.
 6. Queries must never modify the data (a test snapshots and compares).
-7. Size is a soft goal (~4KB min+gzip). The compliance suite (`npm run cts:update`) is the correctness gate, not size.
+7. Size is a soft goal (~3KB min+gzip, excluding treffer). The compliance suite (`npm run cts:update`) is the correctness gate, not size.
 
 ## Semantics to preserve
 

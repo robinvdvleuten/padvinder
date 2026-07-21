@@ -1,7 +1,7 @@
 {
 	"name": "padvinder",
 	"version": "0.2.0",
-	"description": "Tiny, CSP-safe, zero-dependency RFC 9535 JSONPath engine. No eval, no new Function.",
+	"description": "Tiny, CSP-safe RFC 9535 JSONPath engine. No eval, no new Function.",
 	"repository": "robinvdvleuten/padvinder",
 	"license": "MIT",
 	"author": {
@@ -29,11 +29,11 @@
 	"size-limit": [
 		{
 			"path": "dist/index.js",
-			"limit": "4.1 kB"
+			"limit": "2.9 kB"
 		},
 		{
 			"path": "dist/index.cjs",
-			"limit": "4.1 kB"
+			"limit": "2.9 kB"
 		}
 	],
 	"scripts": {
@@ -59,6 +59,9 @@
 		"csp",
 		"rfc9535"
 	],
+	"dependencies": {
+		"treffer": "^0.1.0"
+	},
 	"devDependencies": {
 		"@jazzer.js/bug-detectors": "^4.0.0",
 		"@jazzer.js/core": "^4.0.0",

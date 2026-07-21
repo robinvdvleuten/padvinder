@@ -1,6 +1,6 @@
 # padvinder
 
-A tiny, CSP-safe JSONPath engine for JavaScript. **~4KB min+gzip, zero dependencies. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
+A tiny, CSP-safe JSONPath engine for JavaScript. **~3KB min+gzip, one dependency. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
 
 [![NPM version](https://img.shields.io/npm/v/padvinder.svg)](https://www.npmjs.com/package/padvinder)
 [![Build Status](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml/badge.svg)](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml)
@@ -82,9 +82,9 @@ find('$.book[?match(@.isbn, "[0-9]{13}")]', data);
 find('$.book[?luhn(@.code)]', data, { luhn: valid });                   // your function
 ```
 
-`match()` and `search()` parse [RFC 9485 I-Regexp](https://www.rfc-editor.org/rfc/rfc9485.html) into a bounded Thompson NFA. Matching does not backtrack. `^` and `$` are supported as anchors for compatibility with the JSONPath compliance suite. JavaScript-only syntax such as `\d`, lookarounds, backreferences, and lazy quantifiers is rejected; use `[0-9]` in place of `\d`.
+`match()` and `search()` use [treffer](https://github.com/robinvdvleuten/treffer), a bounded [RFC 9485 I-Regexp](https://www.rfc-editor.org/rfc/rfc9485.html) Thompson-NFA matcher. Matching does not backtrack. `^` and `$` are supported as anchors for compatibility with the JSONPath compliance suite. JavaScript-only syntax such as `\d`, lookarounds, backreferences, and lazy quantifiers is rejected; use `[0-9]` in place of `\d`.
 
-Patterns are limited to 4,096 Unicode scalar values, 64 nested groups, 4,096 NFA states, and 1,024 repetitions in a range quantifier. Quantifier bounds may contain at most six digits. Subjects are limited to one million Unicode scalar values, and each match stops after one million state transitions. Invalid or over-budget patterns and subjects return no match. Runtime is bounded by the subject length times the number of active NFA states.
+Treffer enforces its documented pattern, subject, NFA, and work limits. padvinder treats invalid or over-budget patterns and subjects as no match. See [Treffer's documentation](https://github.com/robinvdvleuten/treffer#errors-and-limits) for the current limits and complexity bounds.
 
 ## Content Security Policy
 
