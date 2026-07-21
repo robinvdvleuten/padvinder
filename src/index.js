@@ -38,7 +38,7 @@ let limit = (ctx, name, actual) => {
 let loc = (value, depth, ctx) => {
 	limit(ctx, 'maxDepth', depth);
 	if (ctx) limit(ctx, 'maxNodes', ++ctx.nodes);
-	return { value, depth };
+	return { v: value, d: depth };
 };
 
 let edge = (obj, key, depth, ctx) => {
@@ -49,7 +49,7 @@ let edge = (obj, key, depth, ctx) => {
 };
 
 let kids = (x, ctx) => {
-	const n = x.value, depth = x.depth + 1;
+	const n = x.v, depth = x.d + 1;
 	if (!n || typeof n !== 'object') return [];
 	if (Array.isArray(n)) {
 		const out = [];
@@ -71,7 +71,7 @@ let kids = (x, ctx) => {
 // self-referencing data cannot hang recursive descent; it is unwound on exit
 // so a node shared by two branches still shows up under both.
 let all = (x, ctx, seen = new Set()) => {
-	const n = x.value;
+	const n = x.v;
 	if (n && typeof n === 'object') {
 		if (seen.has(n)) return [];
 		seen.add(n);
@@ -82,16 +82,16 @@ let all = (x, ctx, seen = new Set()) => {
 };
 
 let child = (x, k, ctx) => {
-	const n = x.value;
+	const n = x.v;
 	if (n == null || typeof n !== 'object' || BLOCK(k)) return [];
 	if (Array.isArray(n)) {
 		let j = +k;
 		if (j < 0) j += n.length;
 		if (!Number.isInteger(j) || j < 0 || j >= n.length) return [];
-		const v = edge(n, j, x.depth + 1, ctx);
+		const v = edge(n, j, x.d + 1, ctx);
 		return v ? [v] : [];
 	}
-	const v = edge(n, k, x.depth + 1, ctx);
+	const v = edge(n, k, x.d + 1, ctx);
 	return v ? [v] : [];
 };
 
@@ -172,7 +172,7 @@ let selector = (s, fns) => {
 		// `?expr` and the classic `?(expr)` both parse: parentheses are ordinary
 		// grouping in the filter grammar, so no unwrapping is needed.
 		const test = rfcFilter(s.slice(1), fns);
-		return (n, root, ctx) => kids(n, ctx).filter(c => test(c.value, root, ctx));
+		return (n, root, ctx) => kids(n, ctx).filter(c => test(c.v, root, ctx));
 	}
 	const sl = /^(-?\d*)\s*:\s*(-?\d*)(?:\s*:\s*(-?\d+)?)?$/.exec(s);
 	if (sl) {
@@ -180,20 +180,20 @@ let selector = (s, fns) => {
 		// walk backwards, step 0 selects nothing.
 		const st = sl[3] ? +sl[3] : 1;
 		return (n, root, ctx) => {
-			if (!Array.isArray(n.value) || !st) return [];
-			const len = n.value.length, norm = x => (x < 0 ? x + len : x), out = [];
+			if (!Array.isArray(n.v) || !st) return [];
+			const len = n.v.length, norm = x => (x < 0 ? x + len : x), out = [];
 			if (st > 0) {
 				const lo = Math.min(Math.max(sl[1] ? norm(+sl[1]) : 0, 0), len);
 				const hi = Math.min(Math.max(sl[2] ? norm(+sl[2]) : len, 0), len);
 				for (let j = lo; j < hi; j += st) {
-					const x = edge(n.value, j, n.depth + 1, ctx);
+					const x = edge(n.v, j, n.d + 1, ctx);
 					if (x) out.push(x);
 				}
 			} else {
 				const hi = Math.min(Math.max(sl[1] ? norm(+sl[1]) : len - 1, -1), len - 1);
 				const lo = Math.min(Math.max(sl[2] ? norm(+sl[2]) : -1, -1), len - 1);
 				for (let j = hi; j > lo; j += st) {
-					const x = edge(n.value, j, n.depth + 1, ctx);
+					const x = edge(n.v, j, n.d + 1, ctx);
 					if (x) out.push(x);
 				}
 			}
@@ -205,9 +205,9 @@ let selector = (s, fns) => {
 	// from arrays.
 	if (q) {
 		const k = unq(s);
-		return (n, root, ctx) => Array.isArray(n.value) ? [] : child(n, k, ctx);
+		return (n, root, ctx) => Array.isArray(n.v) ? [] : child(n, k, ctx);
 	}
-	if (/^-?\d+$/.test(s)) return (n, root, ctx) => Array.isArray(n.value) ? child(n, s, ctx) : [];
+	if (/^-?\d+$/.test(s)) return (n, root, ctx) => Array.isArray(n.v) ? child(n, s, ctx) : [];
 	err('Bad selector [' + s + ']');
 };
 
@@ -237,13 +237,13 @@ let segments = (path, j, fns, soft) => {
 			const sing = !desc && raw.length === 1 && (/^-?\d+$/.test(raw[0]) || /^["']/.test(raw[0]));
 			// Node-major order (RFC 9535): all selectors run per node before
 			// moving to the next node.
-			segs.push({ desc, sing, apply: (ns, root, ctx) => ns.flatMap(n => sels.flatMap(sel => sel(n, root, ctx))) });
+			segs.push({ d: desc, s: sing, f: (ns, root, ctx) => ns.flatMap(n => sels.flatMap(sel => sel(n, root, ctx))) });
 			j = end + 1;
 		} else {
 			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
 			j += m[1].length;
 			const k = m[1];
-			segs.push({ desc, sing: !desc && k !== '*', apply: k === '*' ? (ns, root, ctx) => ns.flatMap(n => kids(n, ctx)) : (ns, root, ctx) => ns.flatMap(n => child(n, k, ctx)) });
+			segs.push({ d: desc, s: !desc && k !== '*', f: k === '*' ? (ns, root, ctx) => ns.flatMap(n => kids(n, ctx)) : (ns, root, ctx) => ns.flatMap(n => child(n, k, ctx)) });
 		}
 	}
 	return { segs, j };
@@ -252,7 +252,7 @@ let segments = (path, j, fns, soft) => {
 // Run compiled segments over a start nodelist.
 let run = (segs, start, root, ctx) => {
 	let ns = [loc(start, 0, ctx)];
-	ns = segs.reduce((acc, s) => s.apply(s.desc ? acc.flatMap(n => all(n, ctx)) : acc, root, ctx), ns);
+	ns = segs.reduce((acc, s) => s.f(s.d ? acc.flatMap(n => all(n, ctx)) : acc, root, ctx), ns);
 	limit(ctx, 'maxResults', ns.length);
 	return ns;
 };
@@ -288,20 +288,20 @@ let cmp = (op, a, b) =>
 // The five built-in RFC function extensions with their argument and return
 // types. A name absent here is looked up in the caller's registry instead.
 const RFCFN = {
-	length: { args: ['value'], ret: 'value', make: ([a]) => (n, r, ctx) => {
+	length: { a: ['value'], r: 'value', f: ([a]) => (n, r, ctx) => {
 		const v = a(n, r, ctx);
 		return typeof v === 'string' ? [...v].length
 			: Array.isArray(v) ? v.length
 			: v && typeof v === 'object' ? Object.keys(v).length
 			: NOTHING;
 	} },
-	count: { args: ['nodes'], ret: 'value', make: ([a]) => (n, r, ctx) => a(n, r, ctx).length },
-	value: { args: ['nodes'], ret: 'value', make: ([a]) => (n, r, ctx) => {
+	count: { a: ['nodes'], r: 'value', f: ([a]) => (n, r, ctx) => a(n, r, ctx).length },
+	value: { a: ['nodes'], r: 'value', f: ([a]) => (n, r, ctx) => {
 		const ns = a(n, r, ctx);
 		return ns.length === 1 ? ns[0] : NOTHING;
 	} },
-	match: { args: ['value', 'value'], ret: 'logical', make: ([a, b]) => (n, r, ctx) => reTest(a(n, r, ctx), b(n, r, ctx), true) },
-	search: { args: ['value', 'value'], ret: 'logical', make: ([a, b]) => (n, r, ctx) => reTest(a(n, r, ctx), b(n, r, ctx), false) },
+	match: { a: ['value', 'value'], r: 'logical', f: ([a, b]) => (n, r, ctx) => reTest(a(n, r, ctx), b(n, r, ctx), true) },
+	search: { a: ['value', 'value'], r: 'logical', f: ([a, b]) => (n, r, ctx) => reTest(a(n, r, ctx), b(n, r, ctx), false) },
 };
 
 // Parse one filter body as the RFC grammar, producing (node, root) => boolean.
@@ -318,8 +318,8 @@ let rfcFilter = (src, fns) => {
 		const { segs, j } = segments(src, k, fns, !0);
 		k = j;
 		return {
-			sing: segs.every(s => s.sing),
-			run: (n, r, ctx) => run(segs, abs ? r : n, r, ctx),
+			s: segs.every(s => s.s),
+			f: (n, r, ctx) => run(segs, abs ? r : n, r, ctx),
 		};
 	};
 
@@ -351,16 +351,16 @@ let rfcFilter = (src, fns) => {
 		ws();
 		if (src[k] === '@' || src[k] === '$') {
 			const q = queryExpr();
-			if (type === 'nodes') return (n, r, ctx) => q.run(n, r, ctx).map(x => x.value);
-			q.sing || fail();
-			return (n, r, ctx) => { const ns = q.run(n, r, ctx); return ns.length ? ns[0].value : NOTHING; };
+			if (type === 'nodes') return (n, r, ctx) => q.f(n, r, ctx).map(x => x.v);
+			q.s || fail();
+			return (n, r, ctx) => { const ns = q.f(n, r, ctx); return ns.length ? ns[0].v : NOTHING; };
 		}
 		type === 'nodes' && fail();
 		const lit = literal();
 		if (lit) return lit;
 		const f = funcExpr();
-		f.type === 'value' || fail();
-		return f.fn;
+		f.t === 'value' || fail();
+		return f.f;
 	};
 	const funcExpr = () => {
 		const m = /^[a-z][a-z0-9_]*/.exec(src.slice(k)) || fail();
@@ -370,9 +370,9 @@ let rfcFilter = (src, fns) => {
 		// to an inherited Object.prototype member.
 		const spec = Object.hasOwn(RFCFN, m[0]) ? RFCFN[m[0]] : undefined;
 		if (spec) {
-			const args = spec.args.map((t, x) => (x && (ws(), eat(',') || fail()), arg(t)));
+			const args = spec.a.map((t, x) => (x && (ws(), eat(',') || fail()), arg(t)));
 			ws(); eat(')') || fail();
-			return { type: spec.ret, fn: spec.make(args) };
+			return { t: spec.r, f: spec.f(args) };
 		}
 		// Registered function extension: value-type args, and its result may be
 		// used as a value or (unlike the built-ins) as a truthiness test.
@@ -383,7 +383,7 @@ let rfcFilter = (src, fns) => {
 			do args.push(arg('value')); while (ws(), eat(','));
 			ws(); eat(')') || fail();
 		}
-		return { type: 'user', fn: (n, r, ctx) => f(...args.map(a => a(n, r, ctx))) };
+		return { t: 'user', f: (n, r, ctx) => f(...args.map(a => a(n, r, ctx))) };
 	};
 
 	// A comparable/test primary: query, literal, or function call.
@@ -393,14 +393,14 @@ let rfcFilter = (src, fns) => {
 		const lit = literal();
 		if (lit) return { v: lit };
 		const f = funcExpr();
-		return f.type === 'logical' ? { l: f.fn } : f.type === 'user' ? { v: f.fn, u: !0 } : { v: f.fn };
+		return f.t === 'logical' ? { l: f.f } : f.t === 'user' ? { v: f.f, u: !0 } : { v: f.f };
 	};
 	// ValueType position: literals, value functions, and singular queries only.
 	const asValue = p => {
 		if (p.v) return p.v;
-		p.q && p.q.sing || fail();
+		p.q && p.q.s || fail();
 		const q = p.q;
-		return (n, r, ctx) => { const ns = q.run(n, r, ctx); return ns.length ? ns[0].value : NOTHING; };
+		return (n, r, ctx) => { const ns = q.f(n, r, ctx); return ns.length ? ns[0].v : NOTHING; };
 	};
 
 	const basic = () => {
@@ -424,7 +424,7 @@ let rfcFilter = (src, fns) => {
 		// Test position: a query is an existence test, a logical function is
 		// itself, a registered function is truthiness-tested; a bare literal or
 		// a built-in value function is not a valid test.
-		const t = p.q ? ((q => (n, r, ctx) => q.run(n, r, ctx).length > 0)(p.q)) : p.u ? p.v : (p.l || fail());
+		const t = p.q ? ((q => (n, r, ctx) => q.f(n, r, ctx).length > 0)(p.q)) : p.u ? p.v : (p.l || fail());
 		return neg ? (n, r, ctx) => !t(n, r, ctx) : t;
 	};
 	const and = () => {
@@ -469,7 +469,7 @@ export function query(path, funcs, options) {
 	const budget = names.some(k => Object.hasOwn(options, k));
 	return data => {
 		const ctx = budget ? { ...options, nodes: 0 } : null;
-		return run(segs, data, data, ctx).map(x => x.value);
+		return run(segs, data, data, ctx).map(x => x.v);
 	};
 }
 
