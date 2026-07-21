@@ -271,8 +271,46 @@ let child = (n, k) => {
 	return Object.hasOwn(n, k) ? [n[k]] : [];
 };
 
-// Quoted string → value. Unescape via JSON, single quotes normalized first.
-let unq = s => JSON.parse(s[0] === '"' ? s : '"' + s.slice(1, -1).replace(/\\'/g, "'").replace(/"/g, '\\"') + '"');
+// RFC 9535 quoted string → value. Escaped quotes must match the delimiter,
+// and the decoded value must contain only Unicode scalar values.
+let unq = s => {
+	const q = s[0], end = s.length - 1;
+	let out = '', bad = () => err('Invalid string literal');
+	for (let j = 1; j < end; j++) {
+		let c = s[j];
+		if (c === '\\') {
+			c = s[++j];
+			if (c === q) out += c;
+			else if ('bfnrt/\\'.includes(c)) out += c === 'b' ? '\b' : c === 'f' ? '\f' : c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c;
+			else if (c === 'u' && /^[\da-f]{4}$/i.test(s.slice(j + 1, j + 5))) {
+				const a = parseInt(s.slice(j + 1, j + 5), 16);
+				j += 4;
+				if (a >= 0xd800 && a <= 0xdbff) {
+					(s.slice(j + 1, j + 3) === '\\u' && /^[\da-f]{4}$/i.test(s.slice(j + 3, j + 7))) || bad();
+					const b = parseInt(s.slice(j + 3, j + 7), 16);
+					(b >= 0xdc00 && b <= 0xdfff) || bad();
+					out += String.fromCharCode(a, b);
+					j += 6;
+				} else {
+					(a < 0xdc00 || a > 0xdfff) || bad();
+					out += String.fromCharCode(a);
+				}
+			} else bad();
+		} else {
+			(c >= ' ' && c !== q) || bad();
+			const a = c.charCodeAt();
+			if (a >= 0xd800 && a <= 0xdbff) {
+				const b = s.charCodeAt(j + 1);
+				(b >= 0xdc00 && b <= 0xdfff) || bad();
+				out += c + s[++j];
+			} else {
+				(a < 0xdc00 || a > 0xdfff) || bad();
+				out += c;
+			}
+		}
+	}
+	return out;
+};
 
 // Index of the `]` matching the `[` at s[j], respecting nesting and strings.
 let close = (s, j) => {

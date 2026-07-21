@@ -51,6 +51,9 @@ test('quoted keys unescape', t => {
 	t.deepEqual(find("$['it\\'s']", { "it's": 1 }), [1], 'escaped single quote');
 	t.deepEqual(find('$["say \\"hi\\""]', { 'say "hi"': 2 }), [2], 'escaped double quotes');
 	t.deepEqual(find("$['back\\\\slash']", { 'back\\slash': 3 }), [3], 'escaped backslash');
+	t.deepEqual(find(String.raw`$['say "hi"']`, { 'say "hi"': 4 }), [4], 'raw opposite quote');
+	t.deepEqual(find(String.raw`$['\uD83D\uDE00']`, { '😀': 5 }), [5], 'escaped surrogate pair');
+	t.deepEqual(find("$['😀']", { '😀': 6 }), [6], 'raw supplementary scalar');
 	t.deepEqual(find("$['a,b']", { 'a,b': 4 }), [4], 'comma inside quotes is not a union');
 	t.deepEqual(find("$['spaced key'].x", { 'spaced key': { x: 5 } }), [5]);
 	t.end();
@@ -115,9 +118,10 @@ test('I-Regexp grammar and Unicode semantics', t => {
 
 test('invalid or over-budget I-Regexp patterns match nothing', t => {
 	const run = p => find('$[?match(@, ' + JSON.stringify(p) + ')]', ['a', 'aaa']);
-	for (const p of ['\\d+', '(?=a)', '(a)\\1', 'a+?', '[^]', '[[]', '[a[b]', '[z-a]', '\ud800', 'a{1025}', '('.repeat(65) + 'a' + ')'.repeat(65)]) {
+	for (const p of ['\\d+', '(?=a)', '(a)\\1', 'a+?', '[^]', '[[]', '[a[b]', '[z-a]', 'a{1025}', '('.repeat(65) + 'a' + ')'.repeat(65)]) {
 		t.deepEqual(run(p), [], p);
 	}
+	t.throws(() => run('\ud800'), SyntaxError, 'lone surrogate is not a valid filter string');
 	t.deepEqual(run('a'.repeat(4097)), [], 'pattern length cap');
 	t.deepEqual(run('a{0001024}'), [], 'quantifier digit cap');
 	t.deepEqual(run('('.repeat(64) + 'a' + ')'.repeat(64)), ['a'], 'deepest group nesting compiles');

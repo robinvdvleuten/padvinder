@@ -179,6 +179,20 @@ function sameResult(a, b) {
 	eq('$[?search(@, "(a+)+$")]', ['a'.repeat(1000) + '!'], [], 'nested repetition stays bounded');
 })();
 
+(function stringBattery() {
+	assert.deepStrictEqual(query(String.raw`$['say "hi"']`)({ 'say "hi"': 1 }), [1]);
+	assert.deepStrictEqual(query(String.raw`$['\uD83D\uDE00']`)({ '😀': 1 }), [1]);
+	for (const path of [
+		String.raw`$['a\"b']`,
+		String.raw`$["a\'b"]`,
+		String.raw`$['\uD800']`,
+		String.raw`$["\uDC00"]`,
+		"$['\ud83d" + String.raw`\uDE00']`,
+		String.raw`$['\uD83D` + "\ude00']",
+		String.raw`$['\u12']`,
+	]) assert.throws(() => query(path), SyntaxError);
+})();
+
 // Cyclic recursive descent terminates (bounded; no unions over the cycle).
 (function cycleBattery() {
 	const node = { name: 'cyc' }; node.self = node;
