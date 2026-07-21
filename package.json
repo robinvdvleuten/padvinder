@@ -37,6 +37,7 @@
 		}
 	],
 	"scripts": {
+		"bench": "node --disallow-code-generation-from-strings bench/index.js",
 		"build": "tsdown",
 		"cts:update": "curl -sL -o test/cts.json https://raw.githubusercontent.com/jsonpath-standard/jsonpath-compliance-test-suite/main/cts.json && curl -sL -o test/cts.LICENSE https://raw.githubusercontent.com/jsonpath-standard/jsonpath-compliance-test-suite/main/LICENSE",
 		"fuzz": "npm run fuzz:prepare && run-s fuzz:compile fuzz:find fuzz:structured",
