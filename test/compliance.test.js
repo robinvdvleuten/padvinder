@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import test from 'tape';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { query } from '../src/index.js';
 
 // The official JSONPath Compliance Test Suite, vendored from
@@ -15,7 +16,7 @@ const cts = JSON.parse(readFileSync(new URL('./cts.json', import.meta.url)));
 // ledger check flags it so the entry gets removed.
 const DIALECT = new Map();
 
-test('compliance: valid selectors', t => {
+test('compliance: valid selectors', () => {
 	const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 	let pass = 0, dialect = 0;
 	for (const c of cts.tests) {
@@ -25,19 +26,18 @@ test('compliance: valid selectors', t => {
 		const good = !threw && (c.results ? c.results.some(r => eq(out, r)) : eq(out, c.result));
 		if (DIALECT.has(c.name)) {
 			dialect++;
-			good && t.fail('now conformant, remove from ledger: ' + c.name);
+			good && assert.fail('now conformant, remove from ledger: ' + c.name);
 		} else if (good) {
 			pass++;
 		} else {
-			t.fail(c.name + ' | ' + c.selector);
+			assert.fail(c.name + ' | ' + c.selector);
 		}
 	}
-	t.equal(pass + dialect, cts.tests.filter(c => !c.invalid_selector).length, 'every valid case accounted for');
-	t.pass(pass + ' conformant, ' + dialect + ' documented divergences');
-	t.end();
+	assert.strictEqual(pass + dialect, cts.tests.filter(c => !c.invalid_selector).length, 'every valid case accounted for');
+	assert.ok(true, pass + ' conformant, ' + dialect + ' documented divergences');
 });
 
-test('compliance: invalid selectors', t => {
+test('compliance: invalid selectors', () => {
 	let rejected = 0, total = 0;
 	for (const c of cts.tests) {
 		if (!c.invalid_selector) continue;
@@ -46,6 +46,5 @@ test('compliance: invalid selectors', t => {
 	}
 	// padvinder is deliberately more lenient than the RFC grammar (it accepts
 	// a superset); pin the floor so strictness never silently regresses.
-	t.ok(rejected >= 204, 'rejects ' + rejected + '/' + total + ' RFC-invalid selectors');
-	t.end();
+	assert.ok(rejected >= 204, 'rejects ' + rejected + '/' + total + ' RFC-invalid selectors');
 });

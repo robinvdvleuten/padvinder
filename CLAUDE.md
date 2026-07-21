@@ -1,13 +1,13 @@
 # padvinder
 
-Tiny, CSP-safe RFC 9535 JSONPath engine. Same family and toolchain as xprsn and sjabloon (plain JS + JSDoc, tape, tsdown). The filter grammar lives here; bounded I-Regexp matching comes from treffer.
+Tiny, CSP-safe RFC 9535 JSONPath engine. Same family and toolchain as xprsn and sjabloon (plain JS + JSDoc, Node test runner, tsdown). The filter grammar lives here; bounded I-Regexp matching comes from treffer.
 
 ## Commands
 
-- `npm test` — tape suites under `node --disallow-code-generation-from-strings` (strict-CSP simulation).
+- `npm test` — Node test suites under `node --disallow-code-generation-from-strings` (strict-CSP simulation).
 - `npm run build` — tsdown (rolldown + oxc), configured in `tsdown.config.js` → `dist/` (ESM/CJS). Type generation is off; `index.d.ts` is hand-written.
 - `npm run size` — size-limit checks the gzip size of `dist/index.js` and `dist/index.cjs` against the budgets in `package.json`.
-- Run a single suite: `npx tape test/query.test.js`
+- Run a single suite: `node --test --test-concurrency=1 test/query.test.js`
 - `npm run fuzz` — jazzer.js discovery over `compile`, `find`, `structured` targets in `fuzz/` (run against `src/` under `--disallow-code-generation-from-strings`); `npm run fuzz:regression` replays the committed corpus (the CI gate). See [fuzz/README.md](fuzz/README.md). `fuzz/` is not in `files`, so it is never published.
 
 ## Architecture

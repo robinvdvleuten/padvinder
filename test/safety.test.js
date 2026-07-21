@@ -1,32 +1,32 @@
 import { readFileSync } from 'node:fs';
-import test from 'tape';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { find } from '../src/index.js';
 
-test('blocked keys never match', t => {
-	t.deepEqual(find('$.constructor', {}), []);
-	t.deepEqual(find('$.a.__proto__', { a: {} }), []);
-	t.deepEqual(find("$['__proto__']", {}), []);
-	t.deepEqual(find('$..constructor', { a: { b: 1 } }), []);
-	t.deepEqual(find('$.*', { __proto__: null, a: 1, constructor: 2 }), [1], 'wildcard skips blocked own keys');
-	t.end();
+const notOk = (value, message) => assert.ok(!value, message);
+
+test('blocked keys never match', () => {
+	assert.deepStrictEqual(find('$.constructor', {}), []);
+	assert.deepStrictEqual(find('$.a.__proto__', { a: {} }), []);
+	assert.deepStrictEqual(find("$['__proto__']", {}), []);
+	assert.deepStrictEqual(find('$..constructor', { a: { b: 1 } }), []);
+	assert.deepStrictEqual(find('$.*', { __proto__: null, a: 1, constructor: 2 }), [1], 'wildcard skips blocked own keys');
 });
 
-test('blocked keys inside filters match nothing', t => {
-	t.deepEqual(find('$.list[?@.constructor]', { list: [{}] }), [], 'existence test, no match');
-	t.deepEqual(find('$.list[?@["__proto__"]]', { list: [{}] }), []);
-	t.deepEqual(find('$.list[?@.constructor == 1]', { list: [{}] }), [], 'comparison never reaches the prototype');
-	t.end();
+test('blocked keys inside filters match nothing', () => {
+	assert.deepStrictEqual(find('$.list[?@.constructor]', { list: [{}] }), [], 'existence test, no match');
+	assert.deepStrictEqual(find('$.list[?@["__proto__"]]', { list: [{}] }), []);
+	assert.deepStrictEqual(find('$.list[?@.constructor == 1]', { list: [{}] }), [], 'comparison never reaches the prototype');
 });
 
-test('inherited properties never match', t => {
+test('inherited properties never match', () => {
 	const proto = { inherited: 'nope' };
 	const obj = Object.assign(Object.create(proto), { own: 'yes' });
-	t.deepEqual(find('$.a.inherited', { a: obj }), []);
-	t.deepEqual(find('$.a.own', { a: obj }), ['yes']);
-	t.end();
+	assert.deepStrictEqual(find('$.a.inherited', { a: obj }), []);
+	assert.deepStrictEqual(find('$.a.own', { a: obj }), ['yes']);
 });
 
-test('inherited array indexes never match', t => {
+test('inherited array indexes never match', () => {
 	// A real array (Array.isArray stays true) with a hole at index 0 whose value
 	// would resolve through a custom prototype — the index, wildcard, descendant,
 	// and slice paths must all read own elements only.
@@ -36,55 +36,50 @@ test('inherited array indexes never match', t => {
 	arr.length = 2;
 	arr[1] = 'own';
 	Object.setPrototypeOf(arr, proto);
-	t.deepEqual(find('$.arr[0]', { arr }), [], 'index selector skips the hole');
-	t.deepEqual(find('$.arr[*]', { arr }), ['own'], 'wildcard skips the hole');
-	t.deepEqual(find('$.arr..*', { arr }), ['own'], 'descendant skips the hole');
-	t.deepEqual(find('$.arr[0:2]', { arr }), ['own'], 'slice skips the hole');
-	t.deepEqual(find('$.arr[1]', { arr }), ['own'], 'own index still matches');
-	t.end();
+	assert.deepStrictEqual(find('$.arr[0]', { arr }), [], 'index selector skips the hole');
+	assert.deepStrictEqual(find('$.arr[*]', { arr }), ['own'], 'wildcard skips the hole');
+	assert.deepStrictEqual(find('$.arr..*', { arr }), ['own'], 'descendant skips the hole');
+	assert.deepStrictEqual(find('$.arr[0:2]', { arr }), ['own'], 'slice skips the hole');
+	assert.deepStrictEqual(find('$.arr[1]', { arr }), ['own'], 'own index still matches');
 });
 
-test('recursive descent survives cyclic data', t => {
+test('recursive descent survives cyclic data', () => {
 	const node = { name: 'x' };
 	node.self = node;
-	t.deepEqual(find('$..name', { node }), ['x'], 'cycle visited once, no hang');
+	assert.deepStrictEqual(find('$..name', { node }), ['x'], 'cycle visited once, no hang');
 
 	const shared = { v: 1 };
-	t.deepEqual(find('$..v', { p: shared, q: shared }), [1, 1], 'diamond refs still match per location');
-	t.end();
+	assert.deepStrictEqual(find('$..v', { p: shared, q: shared }), [1, 1], 'diamond refs still match per location');
 });
 
-test('queries never modify the data', t => {
+test('queries never modify the data', () => {
 	const data = { store: { book: [{ price: 5 }] } };
 	const snapshot = JSON.stringify(data);
 	find('$..book[?(@.price > 1)].price', data);
-	t.equal(JSON.stringify(data), snapshot);
-	t.end();
+	assert.strictEqual(JSON.stringify(data), snapshot);
 });
 
-test('source contains no string-to-code constructs', t => {
+test('source contains no string-to-code constructs', () => {
 	const src = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
-	t.notOk(/\beval\b|\bFunction\s*\(|new\s+Function/.test(src));
-	t.end();
+	notOk(/\beval\b|\bFunction\s*\(|new\s+Function/.test(src));
 });
 
-test('I-Regexp matching has bounded worst-case work', t => {
+test('I-Regexp matching has bounded worst-case work', () => {
 	const n = 30_000;
 	const text = 'a'.repeat(n) + '!';
 	const t0 = Date.now();
 
-	t.deepEqual(find('$[?search(@, "(a+)+$")]', [text]), [], 'nested repetition');
-	t.deepEqual(find('$[?match(@, "(a*)*")]', ['a'.repeat(n)]), ['a'.repeat(n)], 'nullable cycle');
-	t.deepEqual(find('$[?search(@, "(a|aa)+$")]', [text]), [], 'ambiguous alternation');
-	t.deepEqual(find('$[?match(@, "a{1000000}")]', ['a']), [], 'huge range rejected');
-	t.deepEqual(find('$[?search(@, ' + JSON.stringify('[' + 'b'.repeat(4093) + ']') + ')]', [text]), [], 'class work cap');
-	t.deepEqual(find('$[?match(@, "a{1024}a{1024}a{1024}a{1024}")]', Array(5000).fill('a')), [], 'invalid pattern cache');
-	t.deepEqual(find('$[?search(@, "")]', ['a'.repeat(1_000_001)]), [], 'subject scalar cap');
-	t.deepEqual(find('$.values[?match(@, $.regex)]', {
+	assert.deepStrictEqual(find('$[?search(@, "(a+)+$")]', [text]), [], 'nested repetition');
+	assert.deepStrictEqual(find('$[?match(@, "(a*)*")]', ['a'.repeat(n)]), ['a'.repeat(n)], 'nullable cycle');
+	assert.deepStrictEqual(find('$[?search(@, "(a|aa)+$")]', [text]), [], 'ambiguous alternation');
+	assert.deepStrictEqual(find('$[?match(@, "a{1000000}")]', ['a']), [], 'huge range rejected');
+	assert.deepStrictEqual(find('$[?search(@, ' + JSON.stringify('[' + 'b'.repeat(4093) + ']') + ')]', [text]), [], 'class work cap');
+	assert.deepStrictEqual(find('$[?match(@, "a{1024}a{1024}a{1024}a{1024}")]', Array(5000).fill('a')), [], 'invalid pattern cache');
+	assert.deepStrictEqual(find('$[?search(@, "")]', ['a'.repeat(1_000_001)]), [], 'subject scalar cap');
+	assert.deepStrictEqual(find('$.values[?match(@, $.regex)]', {
 		regex: 'a'.repeat(1_000_000),
 		values: Array(5000).fill('a'),
 	}), [], 'oversized dynamic pattern is not retained');
 
-	t.ok(Date.now() - t0 < 1500, 'completes within the work budget');
-	t.end();
+	assert.ok(Date.now() - t0 < 1500, 'completes within the work budget');
 });
