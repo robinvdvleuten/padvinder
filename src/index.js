@@ -153,21 +153,21 @@ let split = s => {
 	return out.map(x => x.trim());
 };
 
-// One selector inside `[...]` → (nodes, root) => nodes.
+// One selector inside `[...]` → (node, root) => nodes.
 let selector = (s, fns) => {
-	if (s === '*') return (ns, root, ctx) => ns.flatMap(n => kids(n, ctx));
+	if (s === '*') return (n, root, ctx) => kids(n, ctx);
 	if (s[0] === '?') {
 		// `?expr` and the classic `?(expr)` both parse: parentheses are ordinary
 		// grouping in the filter grammar, so no unwrapping is needed.
 		const test = rfcFilter(s.slice(1), fns);
-		return (ns, root, ctx) => ns.flatMap(n => kids(n, ctx)).filter(c => test(c.value, root, ctx));
+		return (n, root, ctx) => kids(n, ctx).filter(c => test(c.value, root, ctx));
 	}
 	const sl = /^(-?\d*)\s*:\s*(-?\d*)(?:\s*:\s*(-?\d+)?)?$/.exec(s);
 	if (sl) {
 		// RFC 9535 slice: negative indexes count from the end, negative steps
 		// walk backwards, step 0 selects nothing.
 		const st = sl[3] ? +sl[3] : 1;
-		return (ns, root, ctx) => ns.flatMap(n => {
+		return (n, root, ctx) => {
 			if (!Array.isArray(n.value) || !st) return [];
 			const len = n.value.length, norm = x => (x < 0 ? x + len : x), out = [];
 			if (st > 0) {
@@ -180,16 +180,16 @@ let selector = (s, fns) => {
 				for (let j = hi; j > lo; j += st) if (Object.hasOwn(n.value, j)) out.push(edge(() => n.value[j], n.depth + 1, ctx));
 			}
 			return out;
-		});
+		};
 	}
 	const q = /^(['"])([\s\S]*)\1$/.exec(s);
 	// RFC 9535 typing: a quoted name selects only from objects, an index only
 	// from arrays.
 	if (q) {
 		const k = unq(s);
-		return (ns, root, ctx) => ns.flatMap(n => Array.isArray(n.value) ? [] : child(n, k, ctx));
+		return (n, root, ctx) => Array.isArray(n.value) ? [] : child(n, k, ctx);
 	}
-	if (/^-?\d+$/.test(s)) return (ns, root, ctx) => ns.flatMap(n => Array.isArray(n.value) ? child(n, s, ctx) : []);
+	if (/^-?\d+$/.test(s)) return (n, root, ctx) => Array.isArray(n.value) ? child(n, s, ctx) : [];
 	err('Bad selector [' + s + ']');
 };
 
@@ -219,7 +219,7 @@ let segments = (path, j, fns, soft) => {
 			const sing = !desc && raw.length === 1 && (/^-?\d+$/.test(raw[0]) || /^["']/.test(raw[0]));
 			// Node-major order (RFC 9535): all selectors run per node before
 			// moving to the next node.
-			segs.push({ desc, sing, apply: (ns, root, ctx) => ns.flatMap(n => sels.flatMap(sel => sel([n], root, ctx))) });
+			segs.push({ desc, sing, apply: (ns, root, ctx) => ns.flatMap(n => sels.flatMap(sel => sel(n, root, ctx))) });
 			j = end + 1;
 		} else {
 			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
