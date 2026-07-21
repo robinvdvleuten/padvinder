@@ -30,3 +30,15 @@ test('bad filter expressions fail at compile time', () => {
 	assert.throws(() => query('$.a[?()]'), SyntaxError);
 	assert.throws(() => query('$.a[?constructor(@)]'), /constructor is not a function/, 'inherited name is not a built-in function');
 });
+
+test('invalid traversal options fail at compile time', () => {
+	for (const options of [1, [], 'x']) assert.throws(() => query('$', {}, options), TypeError);
+	for (const [name, value, type] of [
+		['maxNodes', '1', TypeError],
+		['maxDepth', -1, RangeError],
+		['maxResults', 1.5, RangeError],
+		['maxNodes', Infinity, RangeError],
+	]) assert.throws(() => query('$', {}, { [name]: value }), type);
+	assert.throws(() => query('$', {}, { maxNode: 1 }), /Unknown option/);
+	assert.deepStrictEqual(query('$', {}, null)(1), [1]);
+});

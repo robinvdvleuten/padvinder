@@ -213,4 +213,23 @@ export function fuzz(data) {
 	assertReachable(out);
 	const second = run(FIXTURE);
 	assert.ok(sameResult(out, second), 'non-deterministic query: ' + path);
+
+	const options = {
+		maxNodes: provider.consumeIntegralInRange(0, nodes.size * 8 + 8),
+		maxDepth: provider.consumeIntegralInRange(0, 12),
+		maxResults: provider.consumeIntegralInRange(0, leaves.size + nodes.size),
+	};
+	const bounded = query(path, FUNCS, options);
+	try {
+		const limited = bounded(FIXTURE);
+		if (!sameResult(out, limited)) throw new Error('budgets changed a successful result: ' + path);
+		assert.ok(sameResult(limited, bounded(FIXTURE)), 'bounded runner retained counters: ' + path);
+	} catch (e) {
+		if (!(e instanceof RangeError) || !/^PADVINDER_MAX_(NODES|DEPTH|RESULTS)$/.test(e.code)) throw e;
+		// Failure also gets a fresh context and must fail at the same boundary.
+		assert.throws(
+			() => bounded(FIXTURE),
+			x => x instanceof RangeError && x.code === e.code && x.limit === e.limit && x.actual === e.actual
+		);
+	}
 }

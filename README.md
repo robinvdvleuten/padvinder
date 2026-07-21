@@ -42,13 +42,22 @@ find('$..book[?sale(@)].title', data, { sale: b => b.price < 9 });
 
 ## API
 
-### `query(path, functions?)`
+### `query(path, functions?, options?)`
 
 Compiles the query and returns a runner `(data) => matches[]`. Malformed paths and invalid filter expressions throw a `SyntaxError` at compile time. A query that matches nothing returns an empty array.
 
-### `find(path, data, functions?)`
+### `find(path, data, functions?, options?)`
 
 Shorthand for `query(path, functions)(data)`.
+
+Traversal budgets are optional host controls. Without them, queries remain unlimited. `maxNodes` bounds locations visited across the main query and filter subqueries, `maxDepth` bounds child edges from each query start at depth zero, and `maxResults` bounds the final nodelist of each main or embedded query:
+
+```js
+const options = { maxNodes: 10_000, maxDepth: 64, maxResults: 1_000 };
+find('$..book[*]', data, {}, options);
+```
+
+Each value must be a non-negative safe integer. Exceeding a budget throws a `RangeError` with `code`, `limit`, and `actual` properties. Codes are `PADVINDER_MAX_NODES`, `PADVINDER_MAX_DEPTH`, and `PADVINDER_MAX_RESULTS`. A compiled runner starts with fresh counters on every call.
 
 ## Syntax
 

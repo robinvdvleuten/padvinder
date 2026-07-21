@@ -156,3 +156,56 @@ test('compile once, run many', () => {
 	assert.deepStrictEqual(q({ store: { book: [{ title: 'x', price: 1 }] } }), ['x']);
 	assert.deepStrictEqual(q({}), []);
 });
+
+test('opt-in traversal budgets have exact boundaries', () => {
+	const check = (name, limit, run) => assert.throws(
+		run,
+		e => e instanceof RangeError
+			&& e.code === 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase()
+			&& e.limit === limit
+			&& e.actual === limit + 1
+	);
+
+	assert.deepStrictEqual(find('$.a.b', { a: { b: 1 } }, {}, { maxNodes: 3 }), [1]);
+	check('maxNodes', 2, () => find('$.a.b', { a: { b: 1 } }, {}, { maxNodes: 2 }));
+	assert.deepStrictEqual(find('$.a', { a: 1 }, {}, { maxDepth: 1 }), [1]);
+	check('maxDepth', 0, () => find('$.a', { a: 1 }, {}, { maxDepth: 0 }));
+	assert.deepStrictEqual(find('$[*]', [1, 2], {}, { maxResults: 2 }), [1, 2]);
+	check('maxResults', 1, () => find('$[*]', [1, 2], {}, { maxResults: 1 }));
+	check('maxNodes', 0, () => find('$', 1, {}, { maxNodes: 0 }));
+	check('maxResults', 0, () => find('$', 1, {}, { maxResults: 0 }));
+	assert.deepStrictEqual(find('$[*]', [], {}, { maxResults: 0 }), []);
+});
+
+test('filter subqueries share node budgets and reset depth', () => {
+	const input = { rows: [{ a: { b: 1 } }, { a: { b: 2 } }] };
+	assert.deepStrictEqual(
+		find('$.rows[?@.a.b == 1]', input, {}, { maxDepth: 2 }),
+		[input.rows[0]],
+		'embedded @ starts at depth zero'
+	);
+	assert.throws(
+		() => find('$.rows[?@.a.b]', input, {}, { maxNodes: 6 }),
+		e => e instanceof RangeError && e.code === 'PADVINDER_MAX_NODES',
+		'embedded work consumes the top-level counter'
+	);
+});
+
+test('cycles, shared nodes, early abort, and runner reuse stay bounded', () => {
+	const cyclic = { name: 'root' };
+	cyclic.self = cyclic;
+	assert.deepStrictEqual(find('$..name', cyclic, {}, { maxNodes: 4 }), ['root']);
+
+	const shared = { v: 1 };
+	assert.deepStrictEqual(find('$..v', { a: shared, b: shared }, {}, { maxResults: 2 }), [1, 1]);
+
+	let read = false;
+	const guarded = { first: 1 };
+	Object.defineProperty(guarded, 'later', { enumerable: true, get() { read = true; return 2; } });
+	assert.throws(() => find('$.*', guarded, {}, { maxNodes: 2 }), RangeError);
+	assert.strictEqual(read, false, 'the budget aborts before later data is read');
+
+	const run = query('$..v', {}, { maxNodes: 3 });
+	assert.throws(() => run({ a: { v: 1 }, b: { v: 2 } }), RangeError);
+	assert.deepStrictEqual(run({ v: 3 }), [3], 'a failed call does not poison the next counter');
+});
