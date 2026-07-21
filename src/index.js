@@ -7,6 +7,7 @@
 import { compile as compileRE } from 'treffer';
 
 const BLOCK = k => k === '__proto__' || k === 'constructor' || k === 'prototype';
+const LIMITS = ['maxNodes', 'maxDepth', 'maxResults'];
 
 let err = m => { throw SyntaxError(m) };
 
@@ -24,9 +25,10 @@ let reTest = (s, p, full) => {
 
 // Own child values of a node (guarded). Arrays enumerate own indexes only, so
 // a hole never reads an inherited value off the prototype chain.
-let limit = (ctx, name, actual) => {
-	const max = ctx?.[name];
+let limit = (ctx, key, actual) => {
+	const max = ctx?.[key];
 	if (max !== undefined && actual > max) {
+		const name = LIMITS[key];
 		const e = RangeError(name + ' limit of ' + max + ' exceeded');
 		e.code = 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase();
 		e.limit = max;
@@ -36,15 +38,15 @@ let limit = (ctx, name, actual) => {
 };
 
 let loc = (value, depth, ctx) => {
-	limit(ctx, 'maxDepth', depth);
-	if (ctx) limit(ctx, 'maxNodes', ++ctx.nodes);
+	limit(ctx, 1, depth);
+	if (ctx) limit(ctx, 0, ++ctx[3]);
 	return { v: value, d: depth };
 };
 
 let edge = (obj, key, depth, ctx) => {
 	if (!Object.hasOwn(obj, key)) return null;
-	limit(ctx, 'maxDepth', depth);
-	if (ctx) limit(ctx, 'maxNodes', ctx.nodes + 1);
+	limit(ctx, 1, depth);
+	if (ctx) limit(ctx, 0, ctx[3] + 1);
 	return loc(obj[key], depth, ctx);
 };
 
@@ -253,7 +255,7 @@ let segments = (path, j, fns, soft) => {
 let run = (segs, start, root, ctx) => {
 	let ns = [loc(start, 0, ctx)];
 	ns = segs.reduce((acc, s) => s.f(s.d ? acc.flatMap(n => all(n, ctx)) : acc, root, ctx), ns);
-	limit(ctx, 'maxResults', ns.length);
+	limit(ctx, 2, ns.length);
 	return ns;
 };
 
@@ -457,18 +459,17 @@ export function query(path, funcs, options) {
 	funcs = funcs || {};
 	if (options != null && (typeof options !== 'object' || Array.isArray(options))) throw TypeError('options must be an object');
 	options = options || {};
-	const names = ['maxNodes', 'maxDepth', 'maxResults'];
-	for (const k of Object.keys(options)) names.includes(k) || (() => { throw TypeError('Unknown option "' + k + '"') })();
-	for (const k of names) if (Object.hasOwn(options, k)) {
+	for (const k of Object.keys(options)) LIMITS.includes(k) || (() => { throw TypeError('Unknown option "' + k + '"') })();
+	for (const k of LIMITS) if (Object.hasOwn(options, k)) {
 		if (typeof options[k] !== 'number') throw TypeError(k + ' must be a number');
 		if (!Number.isSafeInteger(options[k]) || options[k] < 0) throw RangeError(k + ' must be a non-negative safe integer');
 	}
 	path = String(path).trim();
 	path[0] === '$' || err('Path must start with $');
 	const { segs } = segments(path, 1, funcs, false);
-	const budget = names.some(k => Object.hasOwn(options, k));
+	const limits = LIMITS.map(k => options[k]), budget = limits.some(x => x !== undefined);
 	return data => {
-		const ctx = budget ? { ...options, nodes: 0 } : null;
+		const ctx = budget ? [...limits, 0] : null;
 		return run(segs, data, data, ctx).map(x => x.v);
 	};
 }
