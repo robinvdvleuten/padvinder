@@ -41,10 +41,11 @@ let loc = (value, depth, ctx) => {
 	return { value, depth };
 };
 
-let edge = (get, depth, ctx) => {
+let edge = (obj, key, depth, ctx) => {
+	if (!Object.hasOwn(obj, key)) return null;
 	limit(ctx, 'maxDepth', depth);
 	if (ctx) limit(ctx, 'maxNodes', ctx.nodes + 1);
-	return loc(get(), depth, ctx);
+	return loc(obj[key], depth, ctx);
 };
 
 let kids = (x, ctx) => {
@@ -52,10 +53,18 @@ let kids = (x, ctx) => {
 	if (!n || typeof n !== 'object') return [];
 	if (Array.isArray(n)) {
 		const out = [];
-		for (let j = 0; j < n.length; j++) if (Object.hasOwn(n, j)) out.push(edge(() => n[j], depth, ctx));
+		for (let j = 0; j < n.length; j++) {
+			const x = edge(n, j, depth, ctx);
+			if (x) out.push(x);
+		}
 		return out;
 	}
-	return Object.keys(n).filter(k => !BLOCK(k)).map(k => edge(() => n[k], depth, ctx));
+	const out = [];
+	for (const k of Object.keys(n)) if (!BLOCK(k)) {
+		const x = edge(n, k, depth, ctx);
+		if (x) out.push(x);
+	}
+	return out;
 };
 
 // Node plus all descendants, depth-first. The ancestor set breaks cycles so
@@ -78,9 +87,12 @@ let child = (x, k, ctx) => {
 	if (Array.isArray(n)) {
 		let j = +k;
 		if (j < 0) j += n.length;
-		return Number.isInteger(j) && j >= 0 && j < n.length && Object.hasOwn(n, j) ? [edge(() => n[j], x.depth + 1, ctx)] : [];
+		if (!Number.isInteger(j) || j < 0 || j >= n.length) return [];
+		const v = edge(n, j, x.depth + 1, ctx);
+		return v ? [v] : [];
 	}
-	return Object.hasOwn(n, k) ? [edge(() => n[k], x.depth + 1, ctx)] : [];
+	const v = edge(n, k, x.depth + 1, ctx);
+	return v ? [v] : [];
 };
 
 // RFC 9535 quoted string → value. Escaped quotes must match the delimiter,
@@ -173,11 +185,17 @@ let selector = (s, fns) => {
 			if (st > 0) {
 				const lo = Math.min(Math.max(sl[1] ? norm(+sl[1]) : 0, 0), len);
 				const hi = Math.min(Math.max(sl[2] ? norm(+sl[2]) : len, 0), len);
-				for (let j = lo; j < hi; j += st) if (Object.hasOwn(n.value, j)) out.push(edge(() => n.value[j], n.depth + 1, ctx));
+				for (let j = lo; j < hi; j += st) {
+					const x = edge(n.value, j, n.depth + 1, ctx);
+					if (x) out.push(x);
+				}
 			} else {
 				const hi = Math.min(Math.max(sl[1] ? norm(+sl[1]) : len - 1, -1), len - 1);
 				const lo = Math.min(Math.max(sl[2] ? norm(+sl[2]) : -1, -1), len - 1);
-				for (let j = hi; j > lo; j += st) if (Object.hasOwn(n.value, j)) out.push(edge(() => n.value[j], n.depth + 1, ctx));
+				for (let j = hi; j > lo; j += st) {
+					const x = edge(n.value, j, n.depth + 1, ctx);
+					if (x) out.push(x);
+				}
 			}
 			return out;
 		};

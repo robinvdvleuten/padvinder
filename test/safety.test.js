@@ -26,6 +26,20 @@ test('inherited properties never match', () => {
 	assert.deepStrictEqual(find('$.a.own', { a: obj }), ['yes']);
 });
 
+test('getters cannot expose inherited properties during traversal', () => {
+	const proto = { later: 'inherited' };
+	const obj = Object.create(proto);
+	Object.defineProperty(obj, 'first', {
+		enumerable: true,
+		get() {
+			delete obj.later;
+			return 'own';
+		},
+	});
+	obj.later = 'deleted';
+	assert.deepStrictEqual(find('$.a[*]', { a: obj }), ['own']);
+});
+
 test('inherited array indexes never match', () => {
 	// A real array (Array.isArray stays true) with a hole at index 0 whose value
 	// would resolve through a custom prototype — the index, wildcard, descendant,
