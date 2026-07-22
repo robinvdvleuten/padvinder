@@ -46,6 +46,13 @@ find('$..book[?sale(@)].title', data, { sale: b => b.price < 9 });
 
 Compiles the query and returns a runner `(data) => matches[]`. Malformed paths and invalid filter expressions throw a `SyntaxError` at compile time. A query that matches nothing returns an empty array.
 
+The runner exposes deeply frozen compile-time metadata:
+
+- `functions` lists referenced caller-registered filter extensions in first-seen order. RFC built-ins are excluded.
+- `paths` lists deduplicated dependency topologies for the main query and embedded `$`/`@` filter queries. Each path is an anchor-first tuple followed by selector tuples such as `['name', 'store']`, `['index', 0]`, `['wildcard']`, `['union', ...selectors]`, `['slice', start, end, step]`, `['filter']`, or `['descendant', selector]`.
+
+Dynamic tuples describe selection topology, not exact field locations or a lossless query AST. Filter predicate text and parent links for embedded queries are intentionally omitted; selector order and union duplicates are preserved.
+
 ### `find(path, data, functions?, options?)`
 
 Shorthand for `query(path, functions)(data)`.

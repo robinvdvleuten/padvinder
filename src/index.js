@@ -167,21 +167,21 @@ let split = s => {
 	return out.map(x => x.trim());
 };
 
-// One selector inside `[...]` → (node, root) => nodes.
-let selector = (s, fns) => {
-	if (s === '*') return (n, root, ctx) => kids(n, ctx);
+// One selector inside `[...]` → executor plus dependency-topology tuple.
+let selector = (s, fns, meta) => {
+	if (s === '*') return { f: (n, root, ctx) => kids(n, ctx), m: ['wildcard'] };
 	if (s[0] === '?') {
 		// `?expr` and the classic `?(expr)` both parse: parentheses are ordinary
 		// grouping in the filter grammar, so no unwrapping is needed.
-		const test = rfcFilter(s.slice(1), fns);
-		return (n, root, ctx) => kids(n, ctx).filter(c => test(c.v, root, ctx));
+		const test = rfcFilter(s.slice(1), fns, meta);
+		return { f: (n, root, ctx) => kids(n, ctx).filter(c => test(c.v, root, ctx)), m: ['filter'] };
 	}
 	const sl = /^(-?\d*)\s*:\s*(-?\d*)(?:\s*:\s*(-?\d+)?)?$/.exec(s);
 	if (sl) {
 		// RFC 9535 slice: negative indexes count from the end, negative steps
 		// walk backwards, step 0 selects nothing.
 		const st = sl[3] ? +sl[3] : 1;
-		return (n, root, ctx) => {
+		return { m: ['slice', sl[1] ? +sl[1] : null, sl[2] ? +sl[2] : null, st], f: (n, root, ctx) => {
 			if (!Array.isArray(n.v) || !st) return [];
 			const len = n.v.length, norm = x => (x < 0 ? x + len : x), out = [];
 			if (st > 0) {
@@ -200,16 +200,16 @@ let selector = (s, fns) => {
 				}
 			}
 			return out;
-		};
+		} };
 	}
 	const q = /^(['"])([\s\S]*)\1$/.exec(s);
 	// RFC 9535 typing: a quoted name selects only from objects, an index only
 	// from arrays.
 	if (q) {
 		const k = unq(s);
-		return (n, root, ctx) => Array.isArray(n.v) ? [] : child(n, k, ctx);
+		return { f: (n, root, ctx) => Array.isArray(n.v) ? [] : child(n, k, ctx), m: ['name', k] };
 	}
-	if (/^-?\d+$/.test(s)) return (n, root, ctx) => Array.isArray(n.v) ? child(n, s, ctx) : [];
+	if (/^-?\d+$/.test(s)) return { f: (n, root, ctx) => Array.isArray(n.v) ? child(n, s, ctx) : [], m: ['index', +s || 0] };
 	err('Bad selector [' + s + ']');
 };
 
@@ -218,7 +218,7 @@ let selector = (s, fns) => {
 // unexpected character. Soft mode instead stops at the first character that
 // cannot start a segment, so embedded queries inside filters can end
 // mid-string (before an operator, `)`, `]`, or `,`).
-let segments = (path, j, fns, soft) => {
+let segments = (path, j, fns, soft, meta, dep) => {
 	const segs = [];
 	while (j < path.length) {
 		const back = j;
@@ -234,17 +234,21 @@ let segments = (path, j, fns, soft) => {
 		if (path[j] === '[') {
 			const end = close(path, j);
 			const raw = split(path.slice(j + 1, end));
-			const sels = raw.map(s => selector(s, fns));
+			const sels = raw.map(s => selector(s, fns, meta));
+			let m = raw.length === 1 ? sels[0].m : ['union', ...sels.map(s => s.m)];
+			dep.push(desc ? ['descendant', m] : m);
 			// Singular per RFC 9535: one selector, and it is a name or index.
 			const sing = !desc && raw.length === 1 && (/^-?\d+$/.test(raw[0]) || /^["']/.test(raw[0]));
 			// Node-major order (RFC 9535): all selectors run per node before
 			// moving to the next node.
-			segs.push({ d: desc, s: sing, f: (ns, root, ctx) => ns.flatMap(n => sels.flatMap(sel => sel(n, root, ctx))) });
+			segs.push({ d: desc, s: sing, f: (ns, root, ctx) => ns.flatMap(n => sels.flatMap(sel => sel.f(n, root, ctx))) });
 			j = end + 1;
 		} else {
 			const m = /^(\*|[A-Za-z_\u{80}-\u{10FFFF}][\w\u{80}-\u{10FFFF}]*)/u.exec(path.slice(j)) || err('Bad path near index ' + j);
 			j += m[1].length;
 			const k = m[1];
+			const x = k === '*' ? ['wildcard'] : ['name', k];
+			dep.push(desc ? ['descendant', x] : x);
 			segs.push({ d: desc, s: !desc && k !== '*', f: k === '*' ? (ns, root, ctx) => ns.flatMap(n => kids(n, ctx)) : (ns, root, ctx) => ns.flatMap(n => child(n, k, ctx)) });
 		}
 	}
@@ -308,7 +312,7 @@ const RFCFN = {
 
 // Parse one filter body as the RFC grammar, producing (node, root) => boolean.
 // Throws SyntaxError on anything that is not valid RFC 9535 filter syntax.
-let rfcFilter = (src, fns) => {
+let rfcFilter = (src, fns, meta) => {
 	let k = 0;
 	const fail = () => err('Bad filter: ' + src);
 	const ws = () => { while (/\s/.test(src[k])) k++; };
@@ -317,7 +321,9 @@ let rfcFilter = (src, fns) => {
 	// `@` or `$` plus segments; runs to a nodelist.
 	const queryExpr = () => {
 		const abs = src[k++] === '$';
-		const { segs, j } = segments(src, k, fns, !0);
+		const dep = [abs ? '$' : '@'];
+		meta.p.push(dep);
+		const { segs, j } = segments(src, k, fns, !0, meta, dep);
 		k = j;
 		return {
 			s: segs.every(s => s.s),
@@ -379,6 +385,7 @@ let rfcFilter = (src, fns) => {
 		// Registered function extension: value-type args, and its result may be
 		// used as a value or (unlike the built-ins) as a truthiness test.
 		Object.hasOwn(fns, m[0]) || err(m[0] + ' is not a function');
+		meta.f.includes(m[0]) || meta.f.push(m[0]);
 		const f = fns[m[0]], args = [];
 		ws();
 		if (!eat(')')) {
@@ -446,6 +453,12 @@ let rfcFilter = (src, fns) => {
 	return e;
 };
 
+let freeze = x => {
+	if (Array.isArray(x)) x.forEach(freeze);
+	return Object.freeze(x);
+};
+let unique = xs => freeze([...new Map(xs.map(x => [JSON.stringify(x), x])).values()].map(freeze));
+
 /**
  * Compile a JSONPath query once, run it many times.
  *
@@ -466,12 +479,16 @@ export function query(path, funcs, options) {
 	}
 	path = String(path).trim();
 	path[0] === '$' || err('Path must start with $');
-	const { segs } = segments(path, 1, funcs, false);
+	const meta = { p: [['$']], f: [] };
+	const { segs } = segments(path, 1, funcs, false, meta, meta.p[0]);
 	const limits = LIMITS.map(k => options[k]), budget = limits.some(x => x !== undefined);
-	return data => {
+	const runner = data => {
 		const ctx = budget ? [...limits, 0] : null;
 		return run(segs, data, data, ctx).map(x => x.v);
 	};
+	runner.paths = unique(meta.p);
+	runner.functions = freeze(meta.f);
+	return runner;
 }
 
 /**

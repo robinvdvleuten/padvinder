@@ -213,6 +213,22 @@ export function fuzz(data) {
 	assertReachable(out);
 	const second = run(FIXTURE);
 	assert.ok(sameResult(out, second), 'non-deterministic query: ' + path);
+	const meta = JSON.stringify(run.paths);
+	if (meta !== JSON.stringify(query(path, FUNCS).paths)) throw new Error('non-deterministic metadata: ' + path);
+	if (!Object.isFrozen(run.paths) || !Object.isFrozen(run.functions)) throw new Error('mutable metadata root');
+	const keys = new Set();
+	const frozen = x => {
+		if (!Object.isFrozen(x)) throw new Error('mutable nested metadata');
+		for (const y of x) if (Array.isArray(y)) frozen(y);
+	};
+	for (const p of run.paths) {
+		frozen(p);
+		if (p[0] !== '$' && p[0] !== '@') throw new Error('invalid metadata anchor');
+		const key = JSON.stringify(p);
+		if (keys.has(key)) throw new Error('duplicate metadata path');
+		keys.add(key);
+	}
+	for (const f of run.functions) if (!Object.hasOwn(FUNCS, f)) throw new Error('unregistered metadata function');
 
 	const options = {
 		maxNodes: provider.consumeIntegralInRange(0, nodes.size * 8 + 8),

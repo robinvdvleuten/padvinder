@@ -157,6 +157,52 @@ test('compile once, run many', () => {
 	assert.deepStrictEqual(q({}), []);
 });
 
+test('compiled queries expose frozen dependency topology', () => {
+	const q = query('$..book[*][0,0,"title"][1:5:2][?@.price && $.store]');
+	assert.deepStrictEqual(q.paths, [
+		['$', ['descendant', ['name', 'book']], ['wildcard'],
+			['union', ['index', 0], ['index', 0], ['name', 'title']],
+			['slice', 1, 5, 2], ['filter']],
+		['@', ['name', 'price']],
+		['$', ['name', 'store']],
+	]);
+	assert.deepStrictEqual(q.functions, []);
+	assert.ok(Object.isFrozen(q.paths) && Object.isFrozen(q.paths[0]) && Object.isFrozen(q.paths[0][1]));
+	assert.throws(() => q.paths[0][1].push('x'), TypeError, 'nested tuples are immutable');
+});
+
+test('query metadata normalizes, deduplicates, orders, and isolates', () => {
+	const q = query(
+		'$[?cheap(@.a) && @["a"] && count(@[:]) > 0 && cheap($.root)]',
+		{ cheap: Boolean }
+	);
+	assert.deepStrictEqual(q.paths, [
+		['$', ['filter']],
+		['@', ['name', 'a']],
+		['@', ['slice', null, null, 1]],
+		['$', ['name', 'root']],
+	]);
+	assert.deepStrictEqual(q.functions, ['cheap'], 'built-ins are excluded and extensions deduplicate');
+	assert.ok(Object.isFrozen(q.functions));
+
+	const a = query('$.a');
+	const b = query('$["b"]');
+	assert.deepStrictEqual(a.paths, [['$', ['name', 'a']]]);
+	assert.deepStrictEqual(b.paths, [['$', ['name', 'b']]]);
+	assert.notStrictEqual(a.paths, b.paths, 'compiled metadata is isolated');
+	assert.deepStrictEqual(query('$[-0]').paths, [['$', ['index', 0]]]);
+});
+
+test('introspection does not change execution or traversal budgets', () => {
+	const q = query('$.rows[?@.ok].value', {}, { maxResults: 1 });
+	assert.deepStrictEqual(q({ rows: [{ ok: true, value: 1 }] }), [1]);
+	assert.deepStrictEqual(q.paths, [
+		['$', ['name', 'rows'], ['filter'], ['name', 'value']],
+		['@', ['name', 'ok']],
+	]);
+	assert.throws(() => q({ rows: [{ ok: true, value: 1 }, { ok: true, value: 2 }] }), RangeError);
+});
+
 test('opt-in traversal budgets have exact boundaries', () => {
 	const check = (name, limit, run) => assert.throws(
 		run,
