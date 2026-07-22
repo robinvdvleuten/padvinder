@@ -6,6 +6,18 @@ export interface QueryOptions {
 	maxDepth?: number;
 	maxResults?: number;
 }
+export type PadvinderErrorCode =
+	| 'PADVINDER_MAX_NODES'
+	| 'PADVINDER_MAX_DEPTH'
+	| 'PADVINDER_MAX_RESULTS';
+export interface PadvinderDiagnostic extends Error {
+	readonly code?: PadvinderErrorCode;
+	readonly limit?: number;
+	readonly actual?: number;
+}
+/** Test whether an error was created by this padvinder module instance. */
+export function isDiagnostic(error: unknown): error is PadvinderDiagnostic;
+
 export type QuerySelector =
 	| readonly ['name', string]
 	| readonly ['index', number]

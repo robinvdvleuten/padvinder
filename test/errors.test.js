@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { query } from '../src/index.js';
+import { isDiagnostic, query } from '../src/index.js';
 
 test('malformed paths', () => {
 	assert.throws(() => query('store.book'), /Path must start with \$/);
@@ -41,4 +41,69 @@ test('invalid traversal options fail at compile time', () => {
 	]) assert.throws(() => query('$', {}, { [name]: value }), type);
 	assert.throws(() => query('$', {}, { maxNode: 1 }), /Unknown option/);
 	assert.deepStrictEqual(query('$', {}, null)(1), [1]);
+});
+
+test('padvinder-created errors are authenticated', () => {
+	for (const [run, Type] of [
+		[() => query('store.book'), SyntaxError],
+		[() => query('$', {}, 1), TypeError],
+		[() => query('$', {}, { maxDepth: -1 }), RangeError],
+	]) assert.throws(run, e =>
+		e instanceof Type
+		&& isDiagnostic(e)
+		&& !Object.hasOwn(e, 'code')
+		&& !Object.hasOwn(e, 'limit')
+		&& !Object.hasOwn(e, 'actual')
+	);
+});
+
+test('diagnostic provenance cannot be copied', () => {
+	for (const value of [null, undefined, 1, 'PADVINDER_MAX_NODES', {}, SyntaxError('host')])
+		assert.strictEqual(isDiagnostic(value), false);
+
+	const spoof = Object.assign(RangeError('spoof'), {
+		code: 'PADVINDER_MAX_NODES',
+		limit: 1,
+		actual: 2,
+	});
+	assert.strictEqual(isDiagnostic(spoof), false);
+});
+
+test('diagnostic provenance is local to a module instance', async () => {
+	const other = await import('../src/index.js?instance=provenance');
+	let first, second;
+	try { query('bad') } catch (e) { first = e }
+	try { other.query('bad') } catch (e) { second = e }
+
+	assert.ok(isDiagnostic(first));
+	assert.ok(other.isDiagnostic(second));
+	assert.strictEqual(isDiagnostic(second), false);
+	assert.strictEqual(other.isDiagnostic(first), false);
+});
+
+test('captured provenance operations resist prototype replacement', () => {
+	const add = WeakSet.prototype.add;
+	const has = WeakSet.prototype.has;
+	try {
+		WeakSet.prototype.add = function () { return this };
+		WeakSet.prototype.has = () => true;
+		assert.strictEqual(isDiagnostic(Object.assign(SyntaxError('spoof'), { code: 'PADVINDER_MAX_NODES' })), false);
+		assert.throws(() => query('bad'), e => e instanceof SyntaxError && isDiagnostic(e));
+	} finally {
+		WeakSet.prototype.add = add;
+		WeakSet.prototype.has = has;
+	}
+});
+
+test('caller errors pass through unchanged', () => {
+	const host = Object.assign(Error('host failed'), { code: 'PADVINDER_MAX_NODES' });
+	const path = { toString() { throw host } };
+	const data = {};
+	Object.defineProperty(data, 'value', { enumerable: true, get() { throw host } });
+
+	for (const run of [
+		() => query(path),
+		() => query('$.*')(data),
+		() => query('$[?fail(@)]', { fail() { throw host } })([1]),
+	]) assert.throws(run, e => e === host && !isDiagnostic(e));
 });

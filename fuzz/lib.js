@@ -1,9 +1,9 @@
-import { query } from '../src/index.js';
+import { isDiagnostic, query } from '../src/index.js';
 
 // padvinder's only expected error is a compile-time SyntaxError (malformed path
 // or filter). A compiled query never throws at run time and always returns an
 // array of matches — so a runtime throw, or a non-array result, is a finding.
-export const isCompileErr = e => e instanceof SyntaxError;
+export const isCompileErr = e => e instanceof SyntaxError && isDiagnostic(e);
 
 export function compileOnly(path, funcs) {
 	try { query(path, funcs); }

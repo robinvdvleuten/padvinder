@@ -66,6 +66,8 @@ find('$..book[*]', data, {}, options);
 
 Each value must be a non-negative safe integer. Exceeding a budget throws a `RangeError` with `code`, `limit`, and `actual` properties. Codes are `PADVINDER_MAX_NODES`, `PADVINDER_MAX_DEPTH`, and `PADVINDER_MAX_RESULTS`. A compiled runner starts with fresh counters on every call.
 
+Errors created by padvinder keep their `SyntaxError`, `TypeError`, or `RangeError` class. Use `isDiagnostic(error)` to authenticate their origin. The check is local to one installed module instance: copied properties and errors from another copy do not pass. Errors from caller-provided coercion hooks, accessors, or function extensions pass through unchanged. Authentication identifies where an error was created, even if caller code later rethrows it.
+
 ## Syntax
 
 | Selector | Meaning |
@@ -100,7 +102,7 @@ find('$.book[?luhn(@.code)]', data, { luhn: valid });                   // your 
 
 `match()` and `search()` use [treffer](https://github.com/robinvdvleuten/treffer), a bounded [RFC 9485 I-Regexp](https://www.rfc-editor.org/rfc/rfc9485.html) Thompson-NFA matcher. Matching does not backtrack. `^` and `$` are supported as anchors for compatibility with the JSONPath compliance suite. JavaScript-only syntax such as `\d`, lookarounds, backreferences, and lazy quantifiers is rejected; use `[0-9]` in place of `\d`.
 
-Treffer enforces its documented pattern, subject, NFA, and work limits. padvinder treats invalid or over-budget patterns and subjects as no match. See [Treffer's documentation](https://github.com/robinvdvleuten/treffer#errors-and-limits) for the current limits and complexity bounds.
+Treffer enforces its documented pattern, subject, NFA, and work limits. padvinder authenticates errors created by Treffer and maps its syntax and resource diagnostics to no match, as required by RFC 9535. Unexpected errors are not misclassified or swallowed. See [Treffer's documentation](https://github.com/robinvdvleuten/treffer#errors-and-limits) for the current codes, limits, and complexity bounds.
 
 ## Content Security Policy
 

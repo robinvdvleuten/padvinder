@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { FuzzedDataProvider } from '@jazzer.js/core';
-import { query } from '../src/index.js';
+import { isDiagnostic, query } from '../src/index.js';
 import { FIXTURE, collect, snap } from './lib.js';
 
 const { nodes, leaves } = collect(FIXTURE);
@@ -93,7 +93,7 @@ function buildMalformed(data) {
 	return base + ' &&'; // dangling operator
 }
 
-const isCompileErr = e => e instanceof SyntaxError;
+const isCompileErr = e => e instanceof SyntaxError && isDiagnostic(e);
 
 // A returned node must be a genuine location in FIXTURE.
 function assertReachable(out) {
@@ -153,6 +153,13 @@ function sameResult(a, b) {
 	eq('$.s[?match(@, ".")]', { s: ['a\nb'] }, [], 'I-Regexp dot excludes newline; full-match fails');
 	eq('$.s[?search(@, "(")]', { s: ['a'] }, [], 'invalid pattern -> no match, no throw');
 	eq('$.s[?match(@, "a")]', { s: [123] }, [], 'non-string subject -> no match');
+	for (const p of [
+		'('.repeat(65) + 'a' + ')'.repeat(65),
+		'a{0001024}',
+		'a{1025}',
+		'a'.repeat(4096),
+		'[' + 'a'.repeat(4095) + ']',
+	]) eq('$.s[?match(@, ' + JSON.stringify(p) + ')]', { s: ['a'] }, [], 'resource diagnostic -> no match');
 })();
 
 (function stringBattery() {

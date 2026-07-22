@@ -4,12 +4,18 @@
  * never turned into JavaScript, so strict CSP is satisfied.
  */
 
-import { compile as compileRE } from 'treffer';
+import { compile as compileRE, isDiagnostic as isREDiagnostic } from 'treffer';
 
 const BLOCK = k => k === '__proto__' || k === 'constructor' || k === 'prototype';
 const LIMITS = ['maxNodes', 'maxDepth', 'maxResults'];
 
-let err = m => { throw SyntaxError(m) };
+let diags = new WeakSet(), mark = diags.add.bind(diags);
+export let isDiagnostic = diags.has.bind(diags);
+let fault = (Type, msg) => {
+	const e = Type(msg);
+	return mark(e), e;
+};
+let err = m => { throw fault(SyntaxError, m) };
 
 // A one-entry cache avoids recompiling a document-supplied pattern per node
 // without retaining an attacker-controlled set of patterns.
@@ -19,8 +25,12 @@ let reTest = (s, p, full) => {
 	if (p.length > 8192) return false;
 	try {
 		if (p !== reLast) { reLast = p; reNfa = null; reNfa = compileRE(p, { anchors: true }) }
-		return reNfa ? (full ? reNfa.match(s) : reNfa.search(s)) : false;
-	} catch { return false }
+		return reNfa.code ? false : full ? reNfa.match(s) : reNfa.search(s);
+	} catch (e) {
+		if (!isREDiagnostic(e)) throw e;
+		reNfa || (reNfa = e);
+		return false;
+	}
 };
 
 // Own child values of a node (guarded). Arrays enumerate own indexes only, so
@@ -29,7 +39,7 @@ let limit = (ctx, key, actual) => {
 	const max = ctx?.[key];
 	if (max !== undefined && actual > max) {
 		const name = LIMITS[key];
-		const e = RangeError(name + ' limit of ' + max + ' exceeded');
+		const e = fault(RangeError, name + ' limit of ' + max + ' exceeded');
 		e.code = 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase();
 		e.limit = max;
 		e.actual = actual;
@@ -470,12 +480,12 @@ let unique = xs => freeze([...new Map(xs.map(x => [JSON.stringify(x), x])).value
  */
 export function query(path, funcs, options) {
 	funcs = funcs || {};
-	if (options != null && (typeof options !== 'object' || Array.isArray(options))) throw TypeError('options must be an object');
+	if (options != null && (typeof options !== 'object' || Array.isArray(options))) throw fault(TypeError, 'options must be an object');
 	options = options || {};
-	for (const k of Object.keys(options)) LIMITS.includes(k) || (() => { throw TypeError('Unknown option "' + k + '"') })();
+	for (const k of Object.keys(options)) if (!LIMITS.includes(k)) throw fault(TypeError, 'Unknown option "' + k + '"');
 	for (const k of LIMITS) if (Object.hasOwn(options, k)) {
-		if (typeof options[k] !== 'number') throw TypeError(k + ' must be a number');
-		if (!Number.isSafeInteger(options[k]) || options[k] < 0) throw RangeError(k + ' must be a non-negative safe integer');
+		if (typeof options[k] !== 'number') throw fault(TypeError, k + ' must be a number');
+		if (!Number.isSafeInteger(options[k]) || options[k] < 0) throw fault(RangeError, k + ' must be a non-negative safe integer');
 	}
 	path = String(path).trim();
 	path[0] === '$' || err('Path must start with $');

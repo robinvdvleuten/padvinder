@@ -1,4 +1,11 @@
-import { query, type QueryPath, type QueryRunner } from '../index.js';
+import {
+	isDiagnostic,
+	query,
+	type PadvinderDiagnostic,
+	type PadvinderErrorCode,
+	type QueryPath,
+	type QueryRunner,
+} from '../index.js';
 
 const run: QueryRunner = query('$.rows[*]');
 const paths: readonly QueryPath[] = run.paths;
@@ -15,6 +22,14 @@ const functions: readonly string[] = run.functions;
 void anchor;
 void results;
 void functions;
+
+const failure: unknown = null;
+if (isDiagnostic(failure)) {
+	const diagnostic: PadvinderDiagnostic = failure;
+	const code: PadvinderErrorCode | undefined = failure.code;
+	void diagnostic;
+	void code;
+}
 
 // @ts-expect-error metadata arrays are readonly
 run.paths.push(['$']);

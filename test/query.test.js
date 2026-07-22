@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { query, find } from '../src/index.js';
+import { find, isDiagnostic, query } from '../src/index.js';
 
 const data = {
 	store: {
@@ -122,6 +122,34 @@ test('invalid or over-budget I-Regexp patterns match nothing', () => {
 	assert.deepStrictEqual(find('$[?match(@, ' + JSON.stringify('[' + 'a'.repeat(4094) + ']') + ')]', ['a']), ['a'], 'largest pattern compiles');
 });
 
+test('every authenticated Treffer failure category maps to false', () => {
+	const run = (p, values = ['a']) => find('$[?match(@, ' + JSON.stringify(p) + ')]', values);
+	for (const [name, pattern] of [
+		['syntax', '('],
+		['pattern scalars', '[' + 'a'.repeat(4095) + ']'],
+		['group depth', '('.repeat(65) + 'a' + ')'.repeat(65)],
+		['quantifier digits', 'a{0001024}'],
+		['repetitions', 'a{1025}'],
+		['NFA states', 'a'.repeat(4096)],
+	]) assert.deepStrictEqual(run(pattern), [], name);
+
+	assert.deepStrictEqual(run('a*', ['a'.repeat(1_000_001)]), [], 'subject scalars');
+	assert.deepStrictEqual(run('[' + 'b'.repeat(4093) + ']', ['a'.repeat(1000)]), [], 'transitions');
+	assert.deepStrictEqual(run('('), [], 'cached compile failure remains false');
+});
+
+test('errors not authenticated by Treffer are not swallowed', () => {
+	const run = query('$[?match(@, "a")]');
+	const charCodeAt = String.prototype.charCodeAt;
+	const spoof = Object.assign(Error('host failed'), { code: 'TREFFER_SYNTAX' });
+	try {
+		String.prototype.charCodeAt = () => { throw spoof };
+		assert.throws(() => run(['a']), e => e === spoof);
+	} finally {
+		String.prototype.charCodeAt = charCodeAt;
+	}
+});
+
 test('chained filters across segments', () => {
 	const data = { groups: [{ size: 2, items: [{ n: 'Sword', p: 5 }, { n: 'Moby', p: 50 }] }, { size: 1, items: [{ n: 'Saying', p: 1 }] }] };
 	assert.deepStrictEqual(
@@ -207,6 +235,7 @@ test('opt-in traversal budgets have exact boundaries', () => {
 	const check = (name, limit, run) => assert.throws(
 		run,
 		e => e instanceof RangeError
+			&& isDiagnostic(e)
 			&& e.code === 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase()
 			&& e.limit === limit
 			&& e.actual === limit + 1
