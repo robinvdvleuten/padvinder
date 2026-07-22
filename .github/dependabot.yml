@@ -13,6 +13,22 @@ updates:
       prefix: "chore"
       include: "scope"
 
+  - package-ecosystem: "npm"
+    directory: "/bench/comparison"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      bench:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
