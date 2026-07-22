@@ -5,7 +5,7 @@ import {
 	type PadvinderErrorCode,
 	type QueryPath,
 	type QueryRunner,
-} from '../index.js';
+} from 'padvinder';
 
 const run: QueryRunner = query('$.rows[*]');
 const paths: readonly QueryPath[] = run.paths;
