@@ -53,6 +53,8 @@ The runner exposes deeply frozen compile-time metadata:
 
 Dynamic tuples describe selection topology, not exact field locations or a lossless query AST. Filter predicate text and parent links for embedded queries are intentionally omitted; selector order and union duplicates are preserved.
 
+The runner also exposes `isDiagnostic(error)`. This narrower predicate returns `true` only for runtime traversal-budget errors created by that compiled runner. Repeated calls share the runner origin; another runner, even from the same module instance, does not authenticate the error.
+
 ### `find(path, data, functions?, options?)`
 
 Shorthand for `query(path, functions)(data)`.
@@ -66,7 +68,9 @@ find('$..book[*]', data, {}, options);
 
 Each value must be a non-negative safe integer. Exceeding a budget throws a `RangeError` with `code`, `limit`, and `actual` properties. Codes are `PADVINDER_MAX_NODES`, `PADVINDER_MAX_DEPTH`, and `PADVINDER_MAX_RESULTS`. A compiled runner starts with fresh counters on every call.
 
-Errors created by padvinder keep their `SyntaxError`, `TypeError`, or `RangeError` class. Use `isDiagnostic(error)` to authenticate their origin. The check is local to one installed module instance: copied properties and errors from another copy do not pass. Errors from caller-provided coercion hooks, accessors, or function extensions pass through unchanged. Authentication identifies where an error was created, even if caller code later rethrows it.
+Errors created by padvinder keep their `SyntaxError`, `TypeError`, or `RangeError` class. Use the exported `isDiagnostic(error)` to authenticate package origin. The check is local to one installed module instance: copied properties and errors from another copy do not pass. It covers compile-time diagnostics, for which no runner is returned, and runtime diagnostics from every runner in that module instance.
+
+Errors from caller-provided coercion hooks, accessors, or function extensions pass through unchanged. Package authentication still identifies where an error was created when caller code rethrows an authentic padvinder diagnostic, while `runner.isDiagnostic(error)` rejects it unless that runner created the runtime fault. The one-shot `find()` API does not expose its temporary runner; use `query()` when runner-scoped authentication is required.
 
 ## Syntax
 

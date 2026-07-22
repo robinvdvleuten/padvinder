@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isDiagnostic, query } from '../src/index.js';
 
+const caught = run => {
+	try { run() }
+	catch (e) { return e }
+	assert.fail('expected an error');
+};
+
 test('malformed paths', () => {
 	assert.throws(() => query('store.book'), /Path must start with \$/);
 	assert.throws(() => query(''), /Path must start with \$/);
@@ -81,17 +87,81 @@ test('diagnostic provenance is local to a module instance', async () => {
 	assert.strictEqual(other.isDiagnostic(first), false);
 });
 
+test('runtime diagnostic provenance is scoped to its runner', () => {
+	const first = query('$[*]', {}, { maxResults: 0 });
+	const second = query('$[*]', {}, { maxResults: 0 });
+	const one = caught(() => first([1]));
+	const two = caught(() => first([2]));
+
+	assert.ok(one instanceof RangeError);
+	assert.ok(isDiagnostic(one));
+	assert.ok(first.isDiagnostic(one));
+	assert.ok(first.isDiagnostic(two), 'repeated calls keep the same runner origin');
+	assert.strictEqual(second.isDiagnostic(one), false);
+	assert.deepStrictEqual(
+		[one.code, one.limit, one.actual],
+		['PADVINDER_MAX_RESULTS', 0, 1]
+	);
+
+	const compileError = caught(() => query('bad'));
+	assert.ok(isDiagnostic(compileError));
+	assert.strictEqual(first.isDiagnostic(compileError), false, 'compile errors have package provenance only');
+});
+
+test('runtime provenance is local to a module instance', async () => {
+	const other = await import('../src/index.js?instance=runtime-provenance');
+	const first = query('$[*]', {}, { maxResults: 0 });
+	const second = other.query('$[*]', {}, { maxResults: 0 });
+	const one = caught(() => first([1]));
+	const two = caught(() => second([1]));
+
+	assert.ok(first.isDiagnostic(one));
+	assert.ok(second.isDiagnostic(two));
+	assert.strictEqual(first.isDiagnostic(two), false);
+	assert.strictEqual(second.isDiagnostic(one), false);
+	assert.strictEqual(isDiagnostic(two), false);
+	assert.strictEqual(other.isDiagnostic(one), false);
+});
+
 test('captured provenance operations resist prototype replacement', () => {
-	const add = WeakSet.prototype.add;
-	const has = WeakSet.prototype.has;
+	const set = WeakMap.prototype.set;
+	const get = WeakMap.prototype.get;
+	const has = WeakMap.prototype.has;
+	const run = query('$[*]', {}, { maxResults: 0 });
 	try {
-		WeakSet.prototype.add = function () { return this };
-		WeakSet.prototype.has = () => true;
+		WeakMap.prototype.set = function () { return this };
+		WeakMap.prototype.get = () => ({});
+		WeakMap.prototype.has = () => true;
 		assert.strictEqual(isDiagnostic(Object.assign(SyntaxError('spoof'), { code: 'PADVINDER_MAX_NODES' })), false);
 		assert.throws(() => query('bad'), e => e instanceof SyntaxError && isDiagnostic(e));
+		assert.throws(() => run([1]), e => e instanceof RangeError && isDiagnostic(e) && run.isDiagnostic(e));
 	} finally {
-		WeakSet.prototype.add = add;
-		WeakSet.prototype.has = has;
+		WeakMap.prototype.set = set;
+		WeakMap.prototype.get = get;
+		WeakMap.prototype.has = has;
+	}
+});
+
+test('authentic host errors do not inherit the outer runner origin', () => {
+	const compileError = caught(() => query('bad'));
+	const foreign = query('$[*]', {}, { maxResults: 0 });
+	const runtimeError = caught(() => foreign([1]));
+	const getterData = {};
+	Object.defineProperty(getterData, 'value', { enumerable: true, get() { throw runtimeError } });
+	const coercible = { [Symbol.toPrimitive]() { throw runtimeError } };
+	const cases = [
+		[query('$[?boom(@)]', { boom() { throw compileError } }), [1], compileError],
+		[query('$[?boom(@)]', { boom() { return foreign([1]) } }), [1], null, foreign],
+		[query('$.*'), getterData, runtimeError, foreign],
+		[query('$[?coerce(@)]', { coerce: x => Boolean(String(x)) }), [coercible], runtimeError, foreign],
+	];
+
+	for (const [run, data, expected, owner] of cases) {
+		const e = caught(() => run(data));
+		if (expected) assert.strictEqual(e, expected, 'host error identity is preserved');
+		assert.ok(isDiagnostic(e), 'the package still authenticates the inner error');
+		if (owner) assert.ok(owner.isDiagnostic(e), 'the creating runner still authenticates the error');
+		assert.strictEqual(run.isDiagnostic(e), false, 'the outer runner rejects it');
 	}
 });
 

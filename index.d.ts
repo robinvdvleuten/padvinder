@@ -31,9 +31,14 @@ export interface QueryRunner {
 	(data?: any): any[];
 	readonly functions: readonly string[];
 	readonly paths: readonly QueryPath[];
+	/** Test whether a runtime diagnostic was created by this runner. */
+	isDiagnostic(error: unknown): error is PadvinderDiagnostic;
 }
 /**
  * Compile a JSONPath query once, run it many times.
+ *
+ * The runner exposes frozen `paths`/`functions` metadata and a runner-scoped
+ * `isDiagnostic(error)` predicate for runtime faults it creates.
  *
  * @param {string} path The query, e.g. `'$.store.book[?@.price < 10].title'`.
  * @param {Record<string, Function>} [funcs] Custom function extensions callable in filters, alongside the built-in `length`, `count`, `value`, `match`, and `search`.

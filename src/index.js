@@ -9,11 +9,11 @@ import { compile as compileRE, isDiagnostic as isREDiagnostic } from 'treffer';
 const BLOCK = k => k === '__proto__' || k === 'constructor' || k === 'prototype';
 const LIMITS = ['maxNodes', 'maxDepth', 'maxResults'];
 
-let diags = new WeakSet(), mark = diags.add.bind(diags);
+let diags = new WeakMap(), mark = diags.set.bind(diags), origin = diags.get.bind(diags);
 export let isDiagnostic = diags.has.bind(diags);
-let fault = (Type, msg) => {
+let fault = (Type, msg, own) => {
 	const e = Type(msg);
-	return mark(e), e;
+	return mark(e, own), e;
 };
 let err = m => { throw fault(SyntaxError, m) };
 
@@ -39,7 +39,7 @@ let limit = (ctx, key, actual) => {
 	const max = ctx?.[key];
 	if (max !== undefined && actual > max) {
 		const name = LIMITS[key];
-		const e = fault(RangeError, name + ' limit of ' + max + ' exceeded');
+		const e = fault(RangeError, name + ' limit of ' + max + ' exceeded', ctx[4]);
 		e.code = 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase();
 		e.limit = max;
 		e.actual = actual;
@@ -471,6 +471,8 @@ let unique = xs => freeze([...new Map(xs.map(x => [JSON.stringify(x), x])).value
 
 /**
  * Compile a JSONPath query once, run it many times.
+ * The runner exposes frozen `paths`/`functions` metadata and a runner-scoped
+ * `isDiagnostic(error)` predicate for runtime faults it creates.
  *
  * @param {string} path The query, e.g. `'$.store.book[?@.price < 10].title'`.
  * @param {Record<string, Function>} [funcs] Custom function extensions callable in filters, alongside the built-in `length`, `count`, `value`, `match`, and `search`.
@@ -492,12 +494,14 @@ export function query(path, funcs, options) {
 	const meta = { p: [['$']], f: [] };
 	const { segs } = segments(path, 1, funcs, false, meta, meta.p[0]);
 	const limits = LIMITS.map(k => options[k]), budget = limits.some(x => x !== undefined);
+	const own = {};
 	const runner = data => {
-		const ctx = budget ? [...limits, 0] : null;
+		const ctx = budget ? [...limits, 0, own] : null;
 		return run(segs, data, data, ctx).map(x => x.v);
 	};
 	runner.paths = unique(meta.p);
 	runner.functions = freeze(meta.f);
+	runner.isDiagnostic = e => origin(e) === own;
 	return runner;
 }
 

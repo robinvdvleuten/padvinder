@@ -30,6 +30,12 @@ if (isDiagnostic(failure)) {
 	void diagnostic;
 	void code;
 }
+if (run.isDiagnostic(failure)) {
+	const diagnostic: PadvinderDiagnostic = failure;
+	const code: PadvinderErrorCode | undefined = failure.code;
+	void diagnostic;
+	void code;
+}
 
 // @ts-expect-error metadata arrays are readonly
 run.paths.push(['$']);

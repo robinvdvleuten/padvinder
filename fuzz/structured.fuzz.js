@@ -176,6 +176,24 @@ function sameResult(a, b) {
 	]) assert.throws(() => query(path), SyntaxError);
 })();
 
+(function provenanceBattery() {
+	const first = query('$[*]', {}, { maxResults: 0 });
+	const second = query('$[*]', {}, { maxResults: 0 });
+	let runtime, compile;
+	try { first([1]) } catch (e) { runtime = e }
+	try { query('bad') } catch (e) { compile = e }
+	assert.ok(isDiagnostic(runtime) && first.isDiagnostic(runtime), 'runner lost its runtime diagnostic');
+	assert.ok(!second.isDiagnostic(runtime), 'sibling runner accepted a foreign diagnostic');
+	assert.ok(isDiagnostic(compile) && !first.isDiagnostic(compile), 'compile diagnostic gained runner provenance');
+
+	const outer = query('$[?rethrow(@)]', { rethrow() { throw runtime } });
+	assert.throws(
+		() => outer([1]),
+		e => e === runtime && isDiagnostic(e) && !outer.isDiagnostic(e),
+		'authentic host error gained outer runner provenance'
+	);
+})();
+
 // Cyclic recursive descent terminates (bounded; no unions over the cycle).
 (function cycleBattery() {
 	const node = { name: 'cyc' }; node.self = node;
@@ -248,7 +266,8 @@ export function fuzz(data) {
 		if (!sameResult(out, limited)) throw new Error('budgets changed a successful result: ' + path);
 		assert.ok(sameResult(limited, bounded(FIXTURE)), 'bounded runner retained counters: ' + path);
 	} catch (e) {
-		if (!(e instanceof RangeError) || !/^PADVINDER_MAX_(NODES|DEPTH|RESULTS)$/.test(e.code)) throw e;
+		if (!(e instanceof RangeError) || !/^PADVINDER_MAX_(NODES|DEPTH|RESULTS)$/.test(e.code)
+			|| !isDiagnostic(e) || !bounded.isDiagnostic(e)) throw e;
 		// Failure also gets a fresh context and must fail at the same boundary.
 		assert.throws(
 			() => bounded(FIXTURE),
