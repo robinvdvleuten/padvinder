@@ -79,17 +79,23 @@ let kids = (x, ctx) => {
 	return out;
 };
 
-// Node plus all descendants, depth-first. The ancestor set breaks cycles so
-// self-referencing data cannot hang recursive descent; it is unwound on exit
-// so a node shared by two branches still shows up under both.
-let all = (x, ctx, seen = new Set()) => {
-	const n = x.v;
-	if (n && typeof n === 'object') {
-		if (seen.has(n)) return [];
-		seen.add(n);
+// Node plus all descendants, depth-first. Raw objects on the stack are exit
+// markers, keeping cycle detection scoped to the active ancestor path.
+let all = (x, ctx) => {
+	const out = [], stack = [x], seen = new Set();
+	while (stack.length) {
+		x = stack.pop();
+		if (seen.delete(x)) continue;
+		const n = x.v;
+		if (n && typeof n === 'object') {
+			if (seen.has(n)) continue;
+			seen.add(n);
+			stack.push(n);
+		}
+		out.push(x);
+		const cs = kids(x, ctx);
+		while (cs.length) stack.push(cs.pop());
 	}
-	const out = [x, ...kids(x, ctx).flatMap(c => all(c, ctx, seen))];
-	seen.delete(n);
 	return out;
 };
 

@@ -284,3 +284,34 @@ test('cycles, shared nodes, early abort, and runner reuse stay bounded', () => {
 	assert.throws(() => run({ a: { v: 1 }, b: { v: 2 } }), RangeError);
 	assert.deepStrictEqual(run({ v: 3 }), [3], 'a failed call does not poison the next counter');
 });
+
+test('recursive descent preserves preorder and eager budget accounting', () => {
+	const sparse = [];
+	sparse.length = 3;
+	sparse[1] = { value: 'array' };
+	const shared = { value: 'shared' };
+	const input = { first: { value: 'object', sparse }, left: shared, right: shared };
+	assert.deepStrictEqual(find('$..value', input), ['object', 'array', 'shared', 'shared']);
+
+	const reads = [];
+	const guarded = {};
+	Object.defineProperties(guarded, {
+		first: { enumerable: true, get() { reads.push('first'); return { value: 1 } } },
+		second: { enumerable: true, get() { reads.push('second'); return { value: 2 } } },
+	});
+	assert.throws(
+		() => find('$..value', guarded, {}, { maxNodes: 2 }),
+		e => e instanceof RangeError
+			&& e.code === 'PADVINDER_MAX_NODES'
+			&& e.limit === 2
+			&& e.actual === 3
+	);
+	assert.deepStrictEqual(reads, ['first'], 'budget fails before the next sibling getter');
+});
+
+test('recursive descent is stack-safe on deep chains', () => {
+	const root = {}, leaf = { value: 'deep' };
+	let node = root;
+	for (let j = 0; j < 20_000; j++) node = node.next = j === 19_999 ? leaf : {};
+	assert.deepStrictEqual(find('$..value', root), ['deep']);
+});

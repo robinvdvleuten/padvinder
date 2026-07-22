@@ -200,6 +200,12 @@ function sameResult(a, b) {
 	assert.deepStrictEqual(query('$..name')({ node }), ['cyc'], 'cycle visited once');
 	const shared = { v: 7 };
 	assert.deepStrictEqual(query('$..v')({ p: shared, q: shared }), [7, 7], 'diamond still matches per location');
+	const sparse = []; sparse.length = 3; sparse[1] = { v: 8 };
+	assert.deepStrictEqual(query('$..v')({ sparse, shared }), [8, 7], 'sparse preorder changed');
+	const root = {}, leaf = { v: 9 };
+	let deep = root;
+	for (let j = 0; j < 20_000; j++) deep = deep.next = j === 19_999 ? leaf : {};
+	assert.deepStrictEqual(query('$..v')(root), [9], 'deep descent exhausted the call stack');
 })();
 
 const OP = Object.prototype;
