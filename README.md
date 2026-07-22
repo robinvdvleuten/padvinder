@@ -121,6 +121,10 @@ This matters for JSONPath specifically because filter expressions are the classi
 - I-Regexp matching uses bounded NFA simulation instead of a backtracking engine.
 - Registered functions resolve only from what you provide, and receive plain data values as arguments.
 
+## Environments
+
+Node.js 22 and newer are supported through the ESM and CommonJS builds. Browser use is supported through a standards-based ESM bundler in environments supporting ES2024. Direct `<script>` globals and UMD builds are not provided.
+
 ## License
 
 MIT © [Robin van der Vleuten](https://robinvdvleuten.nl)

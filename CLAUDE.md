@@ -5,7 +5,7 @@ Tiny, CSP-safe RFC 9535 JSONPath engine. Same family and toolchain as xprsn and 
 ## Commands
 
 - `npm test` — Node test suites under `node --disallow-code-generation-from-strings` (strict-CSP simulation).
-- `npm run build` — tsdown (rolldown + oxc), configured in `tsdown.config.js` → `dist/` (ESM/CJS). Type generation is off; `index.d.ts` is hand-written.
+- `npm run build` — tsdown (rolldown + oxc), configured in `tsdown.config.js` → `dist/` (ESM/CJS targeting ES2024). Type generation is off; `index.d.ts` is hand-written.
 - `npm run size` — size-limit checks the gzip size of `dist/index.js` and `dist/index.cjs` against the budgets in `package.json`.
 - Run a single suite: `node --test --test-concurrency=1 test/query.test.js`
 - `npm run fuzz` — jazzer.js discovery over `compile`, `find`, `structured` targets in `fuzz/` (run against `src/` under `--disallow-code-generation-from-strings`); `npm run fuzz:regression` replays the committed corpus (the CI gate). See [fuzz/README.md](fuzz/README.md). `fuzz/` is not in `files`, so it is never published.
@@ -44,5 +44,7 @@ Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a re
 
 - Tabs for indentation. Tests in `test/*.test.js` (`query`, `errors`, `safety` suites).
 - Do not mention Symfony in code, comments, or docs.
+- Runtime support is Node.js 22+ through ESM/CJS and ES2024 browser environments through a standards-based ESM bundler. There is no direct-script global or UMD build.
+- Suggested commit messages must follow Conventional Commits and be at most 80 characters.
 - `dist/` is gitignored build output. `index.d.ts` is **hand-written** (bundler type generation is off via `dts: false` in `tsdown.config.js`) — keep it in sync with the JSDoc in `src/index.js` by hand.
 - New path/filter syntax or safety guards must be reflected in the structured fuzz generator (`fuzz/structured.fuzz.js`): teach the generator the new form and add an oracle or fixed battery for any new invariant.
