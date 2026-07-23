@@ -4,10 +4,11 @@ Tiny, CSP-safe RFC 9535 JSONPath engine. Same family and toolchain as xprsn and 
 
 ## Commands
 
-- `npm test` — Node test suites under `node --disallow-code-generation-from-strings` (strict-CSP simulation).
+- `npm test` — Node's built-in test runner under `--disallow-code-generation-from-strings` (strict-CSP simulation), then `npm run test:types` (a smoke check that `index.d.ts` is usable, in `test/types.check.ts`). Keep this on Node: Bun accepts that V8 flag but does not enforce it.
 - `npm run build` — tsdown (rolldown + oxc), configured in `tsdown.config.js` → `dist/` (ESM/CJS targeting ES2024). Type generation is off; `index.d.ts` is hand-written.
 - `npm run size` — size-limit checks the gzip size of `dist/index.js` and `dist/index.cjs` against the budgets in `package.json`.
-- Run a single suite: `node --test --test-concurrency=1 test/query.test.js`
+- `npm run test:browser` — builds the package and runs the browser bundle in Playwright Chromium under a strict CSP.
+- Run a single suite: `node --disallow-code-generation-from-strings --test test/query.test.js`
 - `npm run fuzz` — jazzer.js discovery over `compile`, `find`, `structured` targets in `fuzz/` (run against `src/` under `--disallow-code-generation-from-strings`); `npm run fuzz:regression` replays the committed corpus (the CI gate). See [fuzz/README.md](fuzz/README.md). `fuzz/` is not in `files`, so it is never published.
 
 ## Architecture
@@ -30,6 +31,10 @@ Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a re
 6. Queries must never modify the data (a test snapshots and compares).
 7. Size is a soft goal (~3KB min+gzip, excluding treffer). The compliance suite (`npm run cts:update`) is the correctness gate, not size.
 
+## Omakase pragmatism
+
+Apply this across the whole project: implementation, API design, tests, documentation, dependencies, and tooling. Prefer cohesive defaults and one obvious path over knobs, abstraction, or infrastructure. Test the guarantee users rely on directly, and add complexity only when concrete pressure justifies it. These preferences never weaken the RFC or hard safety constraints.
+
 ## Semantics to preserve
 
 - Non-matches return `[]`, never throw: missing keys, out-of-range indexes, wrong node types.
@@ -42,9 +47,9 @@ Filters are RFC 9535, parsed by `rfcFilter()` in `selector()`'s `?` branch: a re
 
 ## Conventions
 
-- Tabs for indentation. Tests in `test/*.test.js` (`query`, `errors`, `safety` suites).
+- Tabs for indentation. Tests use `node:test`: unit and compliance suites live in `test/*.test.js` (`query`, `errors`, `safety`, `compliance`), the type smoke check is `test/types.check.ts`, and browser fixtures live in `test/browser/`.
 - Do not mention Symfony in code, comments, or docs.
 - Runtime support is Node.js 22+ through ESM/CJS and ES2024 browser environments through a standards-based ESM bundler. There is no direct-script global or UMD build.
 - Suggested commit messages must follow Conventional Commits and be at most 80 characters.
-- `dist/` is gitignored build output. `index.d.ts` is **hand-written** (bundler type generation is off via `dts: false` in `tsdown.config.js`) — keep it in sync with the JSDoc in `src/index.js` by hand.
+- `dist/` is gitignored build output. `index.d.ts` is **hand-written** (bundler type generation is off via `dts: false` in `tsdown.config.js`) — keep it in sync with the JSDoc in `src/index.js` by hand. `test/types.check.ts` (run by `npm run test:types`, part of `npm test`) is a smoke check that the declarations are usable.
 - New path/filter syntax or safety guards must be reflected in the structured fuzz generator (`fuzz/structured.fuzz.js`): teach the generator the new form and add an oracle or fixed battery for any new invariant.
