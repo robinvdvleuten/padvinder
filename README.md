@@ -3,9 +3,9 @@
 A tiny, CSP-safe JSONPath engine for JavaScript. **~3KB min+gzip, one dependency. Passes all 456 valid-selector cases of the official RFC 9535 compliance suite.**
 
 [![NPM version](https://img.shields.io/npm/v/padvinder.svg)](https://www.npmjs.com/package/padvinder)
-[![Build Status](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml/badge.svg)](https://github.com/robinvdvleuten/padvinder/actions/workflows/test.yml)
+[![Build Status](https://github.com/getquario/padvinder/actions/workflows/test.yml/badge.svg)](https://github.com/getquario/padvinder/actions/workflows/test.yml)
 [![NPM downloads](https://img.shields.io/npm/dm/padvinder.svg)](https://www.npmjs.com/package/padvinder)
-[![MIT license](https://img.shields.io/github/license/robinvdvleuten/padvinder.svg)](https://github.com/robinvdvleuten/padvinder/blob/main/LICENSE)
+[![MIT license](https://img.shields.io/github/license/getquario/padvinder.svg)](https://github.com/getquario/padvinder/blob/main/LICENSE)
 
 <a href="https://webstronauts.com?utm_source=github&utm_medium=readme&utm_campaign=padvinder">
 	<picture>
@@ -104,9 +104,9 @@ find('$.book[?match(@.isbn, "[0-9]{13}")]', data);
 find('$.book[?luhn(@.code)]', data, { luhn: valid });                   // your function
 ```
 
-`match()` and `search()` use [treffer](https://github.com/robinvdvleuten/treffer), a bounded [RFC 9485 I-Regexp](https://www.rfc-editor.org/rfc/rfc9485.html) Thompson-NFA matcher. Matching does not backtrack. `^` and `$` are supported as anchors for compatibility with the JSONPath compliance suite. JavaScript-only syntax such as `\d`, lookarounds, backreferences, and lazy quantifiers is rejected; use `[0-9]` in place of `\d`.
+`match()` and `search()` use [treffer](https://github.com/getquario/treffer), a bounded [RFC 9485 I-Regexp](https://www.rfc-editor.org/rfc/rfc9485.html) Thompson-NFA matcher. Matching does not backtrack. `^` and `$` are supported as anchors for compatibility with the JSONPath compliance suite. JavaScript-only syntax such as `\d`, lookarounds, backreferences, and lazy quantifiers is rejected; use `[0-9]` in place of `\d`.
 
-Treffer enforces its documented pattern, subject, NFA, and work limits. padvinder authenticates errors created by Treffer and maps its syntax and resource diagnostics to no match, as required by RFC 9535. Unexpected errors are not misclassified or swallowed. See [Treffer's documentation](https://github.com/robinvdvleuten/treffer#errors-and-limits) for the current codes, limits, and complexity bounds.
+Treffer enforces its documented pattern, subject, NFA, and work limits. padvinder authenticates errors created by Treffer and maps its syntax and resource diagnostics to no match, as required by RFC 9535. Unexpected errors are not misclassified or swallowed. See [Treffer's documentation](https://github.com/getquario/treffer#errors-and-limits) for the current codes, limits, and complexity bounds.
 
 ## Content Security Policy
 
