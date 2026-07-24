@@ -35,16 +35,18 @@ let reTest = (s, p, full) => {
 
 // Own child values of a node (guarded). Arrays enumerate own indexes only, so
 // a hole never reads an inherited value off the prototype chain.
+// One builder for every exhausted-budget diagnostic: camelCase budget name in,
+// typed RangeError with a derived PADVINDER_* code out.
+let cap = (name, max, actual, own) => {
+	const e = fault(RangeError, name + ' limit of ' + max + ' exceeded', own);
+	e.code = 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase();
+	e.limit = max;
+	e.actual = actual;
+	throw e;
+};
 let limit = (ctx, key, actual) => {
 	const max = ctx?.[key];
-	if (max !== undefined && actual > max) {
-		const name = LIMITS[key];
-		const e = fault(RangeError, name + ' limit of ' + max + ' exceeded', ctx[4]);
-		e.code = 'PADVINDER_' + name.replace(/([A-Z])/g, '_$1').toUpperCase();
-		e.limit = max;
-		e.actual = actual;
-		throw e;
-	}
+	if (max !== undefined && actual > max) cap(LIMITS[key], max, actual, ctx[4]);
 };
 
 let loc = (value, depth, ctx) => {
@@ -60,22 +62,17 @@ let edge = (obj, key, depth, ctx) => {
 	return loc(obj[key], depth, ctx);
 };
 
+// Guarded edge into `out` — the one collector every traversal loop shares.
+let put = (out, obj, key, depth, ctx) => {
+	const x = edge(obj, key, depth, ctx);
+	if (x) out.push(x);
+};
+
 let kids = (x, ctx) => {
-	const n = x.v, depth = x.d + 1;
-	if (!n || typeof n !== 'object') return [];
-	if (Array.isArray(n)) {
-		const out = [];
-		for (let j = 0; j < n.length; j++) {
-			const x = edge(n, j, depth, ctx);
-			if (x) out.push(x);
-		}
-		return out;
-	}
-	const out = [];
-	for (const k of Object.keys(n)) if (!BLOCK(k)) {
-		const x = edge(n, k, depth, ctx);
-		if (x) out.push(x);
-	}
+	const n = x.v, depth = x.d + 1, out = [];
+	if (!n || typeof n !== 'object') return out;
+	if (Array.isArray(n)) for (let j = 0; j < n.length; j++) put(out, n, j, depth, ctx);
+	else for (const k of Object.keys(n)) if (!BLOCK(k)) put(out, n, k, depth, ctx);
 	return out;
 };
 
@@ -103,11 +100,9 @@ let child = (x, k, ctx) => {
 	const n = x.v;
 	if (n == null || typeof n !== 'object' || BLOCK(k)) return [];
 	if (Array.isArray(n)) {
-		let j = +k;
-		if (j < 0) j += n.length;
-		if (!Number.isInteger(j) || j < 0 || j >= n.length) return [];
-		const v = edge(n, j, x.d + 1, ctx);
-		return v ? [v] : [];
+		k = +k;
+		if (k < 0) k += n.length;
+		if (!Number.isInteger(k) || k < 0 || k >= n.length) return [];
 	}
 	const v = edge(n, k, x.d + 1, ctx);
 	return v ? [v] : [];
@@ -123,7 +118,7 @@ let unq = s => {
 		if (c === '\\') {
 			c = s[++j];
 			if (c === q) out += c;
-			else if ('bfnrt/\\'.includes(c)) out += c === 'b' ? '\b' : c === 'f' ? '\f' : c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c;
+			else if ('bfnrt/\\'.includes(c)) out += { b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' }[c] ?? c;
 			else if (c === 'u' && /^[\da-f]{4}$/i.test(s.slice(j + 1, j + 5))) {
 				const a = parseInt(s.slice(j + 1, j + 5), 16);
 				j += 4;
@@ -203,17 +198,11 @@ let selector = (s, fns, meta) => {
 			if (st > 0) {
 				const lo = Math.min(Math.max(sl[1] ? norm(+sl[1]) : 0, 0), len);
 				const hi = Math.min(Math.max(sl[2] ? norm(+sl[2]) : len, 0), len);
-				for (let j = lo; j < hi; j += st) {
-					const x = edge(n.v, j, n.d + 1, ctx);
-					if (x) out.push(x);
-				}
+				for (let j = lo; j < hi; j += st) put(out, n.v, j, n.d + 1, ctx);
 			} else {
 				const hi = Math.min(Math.max(sl[1] ? norm(+sl[1]) : len - 1, -1), len - 1);
 				const lo = Math.min(Math.max(sl[2] ? norm(+sl[2]) : -1, -1), len - 1);
-				for (let j = hi; j > lo; j += st) {
-					const x = edge(n.v, j, n.d + 1, ctx);
-					if (x) out.push(x);
-				}
+				for (let j = hi; j > lo; j += st) put(out, n.v, j, n.d + 1, ctx);
 			}
 			return out;
 		} };
@@ -293,21 +282,15 @@ let deepEq = (a, b) => {
 	const stack = [a, b];
 	let steps = 0;
 	while (stack.length) {
-		if (++steps > EQ_STEPS) {
-			const e = fault(RangeError, 'comparison limit of ' + EQ_STEPS + ' exceeded');
-			e.code = 'PADVINDER_MAX_COMPARISONS';
-			e.limit = EQ_STEPS;
-			e.actual = steps;
-			throw e;
-		}
+		if (++steps > EQ_STEPS) cap('maxComparisons', EQ_STEPS, steps);
 		const y = stack.pop(), x = stack.pop();
 		if (x === y) continue;
-		if (Array.isArray(x) && Array.isArray(y)) {
-			if (x.length !== y.length) return false;
-			for (let j = 0; j < x.length; j++) stack.push(x[j], y[j]);
-		} else if (x && y && typeof x === 'object' && typeof y === 'object' && !Array.isArray(x) && !Array.isArray(y)) {
+		// Arrays and objects share one own-key walk: array elements are index
+		// keys, and the extra `length` comparison pins the element count
+		// (undefined === undefined for plain objects, so it never rejects them).
+		if (x && y && typeof x === 'object' && typeof y === 'object' && Array.isArray(x) === Array.isArray(y)) {
 			const kx = Object.keys(x).filter(k => !BLOCK(k)), ky = Object.keys(y).filter(k => !BLOCK(k));
-			if (kx.length !== ky.length) return false;
+			if (kx.length !== ky.length || x.length !== y.length) return false;
 			for (const k of kx) {
 				if (!Object.hasOwn(y, k)) return false;
 				stack.push(x[k], y[k]);
