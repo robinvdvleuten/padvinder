@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { find } from '../src/index.js';
+import { find, isDiagnostic } from '../src/index.js';
 
 const notOk = (value, message) => assert.ok(!value, message);
 
@@ -64,6 +64,31 @@ test('recursive descent survives cyclic data', () => {
 
 	const shared = { v: 1 };
 	assert.deepStrictEqual(find('$..v', { p: shared, q: shared }), [1, 1], 'diamond refs still match per location');
+});
+
+test('deep equality comparisons stay off the native call stack', () => {
+	let a = 0, b = 0;
+	for (let i = 0; i < 100_000; i++) { a = [a]; b = [b]; }
+	assert.deepStrictEqual(find('$.r[?@.a == @.b].k', { r: [{ a, b, k: 'eq' }] }), ['eq'],
+		'a 100k-deep equal pair compares without overflowing');
+	b[0] = 'different';
+	assert.deepStrictEqual(find('$.r[?@.a == @.b]', { r: [{ a, b }] }), [],
+		'a deep unequal pair still compares false');
+});
+
+test('cyclic equality comparisons terminate with a typed diagnostic', () => {
+	const a = { v: 1 }, b = { v: 1 };
+	a.self = a;
+	b.self = b;
+	let caught;
+	try {
+		find('$.r[?@.a == @.b]', { r: [{ a, b }] });
+	} catch (e) {
+		caught = e;
+	}
+	assert.ok(caught instanceof RangeError, 'a RangeError, not a hang');
+	assert.strictEqual(caught.code, 'PADVINDER_MAX_COMPARISONS');
+	assert.ok(isDiagnostic(caught), 'authenticated as a padvinder diagnostic');
 });
 
 test('queries never modify the data', () => {

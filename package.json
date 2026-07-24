@@ -32,11 +32,11 @@
 	"size-limit": [
 		{
 			"path": "dist/index.js",
-			"limit": "3.5 kB"
+			"limit": "3.6 kB"
 		},
 		{
 			"path": "dist/index.cjs",
-			"limit": "3.5 kB"
+			"limit": "3.6 kB"
 		}
 	],
 	"scripts": {

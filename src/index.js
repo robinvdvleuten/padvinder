@@ -285,16 +285,36 @@ let run = (segs, start, root, ctx) => {
 const NOTHING = Symbol();
 
 // Deep structural equality per RFC 9535. Own keys only, through the guard,
-// so `__proto__` keys in data stay inert here too.
+// so `__proto__` keys in data stay inert here too. An explicit pair stack
+// keeps deep documents off the native call stack, and a hard step cap bounds
+// pathological (or cyclic) comparisons with a typed diagnostic.
+const EQ_STEPS = 1e6;
 let deepEq = (a, b) => {
-	if (a === b) return true;
-	if (Array.isArray(a) && Array.isArray(b))
-		return a.length === b.length && a.every((x, j) => deepEq(x, b[j]));
-	if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
-		const ka = Object.keys(a).filter(k => !BLOCK(k)), kb = Object.keys(b).filter(k => !BLOCK(k));
-		return ka.length === kb.length && ka.every(k => Object.hasOwn(b, k) && deepEq(a[k], b[k]));
+	const stack = [a, b];
+	let steps = 0;
+	while (stack.length) {
+		if (++steps > EQ_STEPS) {
+			const e = fault(RangeError, 'comparison limit of ' + EQ_STEPS + ' exceeded');
+			e.code = 'PADVINDER_MAX_COMPARISONS';
+			e.limit = EQ_STEPS;
+			e.actual = steps;
+			throw e;
+		}
+		const y = stack.pop(), x = stack.pop();
+		if (x === y) continue;
+		if (Array.isArray(x) && Array.isArray(y)) {
+			if (x.length !== y.length) return false;
+			for (let j = 0; j < x.length; j++) stack.push(x[j], y[j]);
+		} else if (x && y && typeof x === 'object' && typeof y === 'object' && !Array.isArray(x) && !Array.isArray(y)) {
+			const kx = Object.keys(x).filter(k => !BLOCK(k)), ky = Object.keys(y).filter(k => !BLOCK(k));
+			if (kx.length !== ky.length) return false;
+			for (const k of kx) {
+				if (!Object.hasOwn(y, k)) return false;
+				stack.push(x[k], y[k]);
+			}
+		} else return false;
 	}
-	return false;
+	return true;
 };
 
 // RFC comparison semantics: == is deep, Nothing only equals Nothing, and the
