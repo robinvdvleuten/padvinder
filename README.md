@@ -5,7 +5,7 @@ A tiny, CSP-safe JSONPath engine for JavaScript. **~3KB min+gzip, one dependency
 [![NPM version](https://img.shields.io/npm/v/padvinder.svg)](https://www.npmjs.com/package/padvinder)
 [![Build Status](https://github.com/getquario/padvinder/actions/workflows/test.yml/badge.svg)](https://github.com/getquario/padvinder/actions/workflows/test.yml)
 [![NPM downloads](https://img.shields.io/npm/dm/padvinder.svg)](https://www.npmjs.com/package/padvinder)
-[![MIT license](https://img.shields.io/github/license/getquario/padvinder.svg)](https://github.com/getquario/padvinder/blob/main/LICENSE)
+[![Apache-2.0 license](https://img.shields.io/github/license/getquario/padvinder.svg)](https://github.com/getquario/padvinder/blob/main/LICENSE)
 
 <a href="https://webstronauts.com?utm_source=github&utm_medium=readme&utm_campaign=padvinder">
 	<picture>
@@ -127,4 +127,16 @@ Node.js 22 and newer are supported through the ESM and CommonJS builds. Browser 
 
 ## License
 
-MIT © [Robin van der Vleuten](https://robinvdvleuten.nl)
+Copyright 2026 Robin van der Vleuten
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
